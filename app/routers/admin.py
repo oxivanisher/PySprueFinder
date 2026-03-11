@@ -12,7 +12,7 @@ from app.auth import require_admin
 from app.config import settings
 from app.database import get_db
 from app.models import NumberLocation, Project, Sprue
-from app.ocr import PROFILES, process_image
+from app.ocr import process_image
 from app.schemas import NumberLocationOut
 
 router = APIRouter()
@@ -97,13 +97,11 @@ async def upload_sprue(
     request: Request,
     letter: str = Form(...),
     name: str = Form(""),
-    profile: str = Form("auto"),
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
     _=Depends(require_admin),
 ):
-    if profile not in PROFILES:
-        profile = "auto"
+    profile = "auto"
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         return RedirectResponse(url="/admin", status_code=302)
