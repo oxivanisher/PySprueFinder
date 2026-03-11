@@ -53,17 +53,26 @@
       const h = loc.height * canvas.height;
       const sel = loc.id === selectedId;
 
-      ctx.strokeStyle = sel ? '#f59e0b' : '#22c55e';
+      const color = sel ? '#f59e0b' : '#22c55e';
+
+      // Box outline
+      ctx.strokeStyle = color;
       ctx.lineWidth = sel ? 3 : 2;
       ctx.strokeRect(x, y, w, h);
 
+      // Number fitted inside the box — sized to fill the box height
       const label = String(loc.number);
-      ctx.font = 'bold 14px monospace';
-      const tw = ctx.measureText(label).width;
-      ctx.fillStyle = sel ? '#f59e0b' : '#22c55e';
-      ctx.fillRect(x, y - 18, tw + 6, 18);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(label, x + 3, y - 4);
+      let fontSize = h;
+      ctx.font = `bold ${fontSize}px monospace`;
+      const measuredW = ctx.measureText(label).width;
+      if (measuredW > w) fontSize *= w / measuredW;
+      ctx.font = `bold ${fontSize}px monospace`;
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x + w / 2, y + h / 2);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
     }
 
     if (isDrawing && dragStart && dragCurrent) {
