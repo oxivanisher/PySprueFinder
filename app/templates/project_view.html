@@ -2,67 +2,84 @@
 {% block title %}{{ project.name }} — PySprueFinder{% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto">
-  <div class="flex items-center justify-between mb-6">
-    <div>
-      <a href="/" class="text-sm text-slate-500 hover:text-amber-500">&larr; All Projects</a>
-      <h1 class="text-3xl font-bold text-slate-800 mt-1">{{ project.name }}</h1>
-    </div>
-    {% if request.session.get('is_admin') %}
-      <a href="/admin/projects/{{ project.id }}"
-         class="px-3 py-1.5 bg-slate-700 text-white text-sm rounded-lg hover:bg-slate-600">
-        Edit Project
-      </a>
-    {% endif %}
-  </div>
+<div class="flex gap-5 items-start -mx-4 px-0">
 
-  <!-- Search -->
-  <div class="bg-white rounded-xl shadow p-6 mb-6">
-    <label class="block text-sm font-medium text-slate-700 mb-2">Find a part number</label>
-    <input
-      type="text"
-      id="search-input"
-      placeholder="e.g. A18 or 18"
-      class="w-full px-4 py-3 text-lg border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
-      autocomplete="off"
-      autofocus
-    >
-    <p class="text-xs text-slate-400 mt-2">
-      Enter a letter+number (e.g. <strong>A18</strong>) or just a number to search all sprues.
-    </p>
-  </div>
+  <!-- ── Left sticky panel ── -->
+  <div class="w-72 flex-shrink-0 sticky top-4 flex flex-col px-4"
+       style="max-height: calc(100vh - 2rem)">
 
-  <!-- Results -->
-  <div id="search-results" class="space-y-6 mb-8"></div>
-  <div id="no-results" class="hidden bg-white rounded-xl shadow p-8 text-center text-slate-500 mb-8">
-    No parts found matching your search.
-  </div>
-
-  <!-- Number catalog -->
-  {% if catalog %}
-    <div class="bg-white rounded-xl shadow p-5">
-      <h2 class="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-4">Browse All Parts</h2>
-      <div class="space-y-4">
-        {% for entry in catalog %}
-          <div>
-            <div class="text-xs font-semibold text-slate-500 mb-1.5">
-              Sprue {{ entry.letter }}{% if entry.name %} — {{ entry.name }}{% endif %}
-              <span class="font-normal text-slate-400">({{ entry.numbers | length }} parts)</span>
-            </div>
-            <div class="flex flex-wrap gap-1.5">
-              {% for num in entry.numbers %}
-                <button
-                  onclick="quickSearch('{{ entry.letter }}{{ num }}')"
-                  class="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-slate-100 text-slate-700 hover:bg-amber-400 hover:text-white transition-colors">
-                  {{ num }}
-                </button>
-              {% endfor %}
-            </div>
-          </div>
-        {% endfor %}
+    <!-- Project title -->
+    <div class="flex items-start justify-between mb-3 flex-shrink-0">
+      <div class="min-w-0">
+        <a href="/" class="text-xs text-slate-500 hover:text-amber-500">&larr; All Projects</a>
+        <h1 class="text-xl font-bold text-slate-800 mt-0.5 leading-tight">{{ project.name }}</h1>
       </div>
+      {% if request.session.get('is_admin') %}
+        <a href="/admin/projects/{{ project.id }}"
+           class="ml-2 flex-shrink-0 px-2 py-1 bg-slate-700 text-white text-xs rounded-lg hover:bg-slate-600">
+          Edit
+        </a>
+      {% endif %}
     </div>
-  {% endif %}
+
+    <!-- Search -->
+    <div class="bg-white rounded-xl shadow p-4 mb-3 flex-shrink-0">
+      <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1.5">
+        Find a part number
+      </label>
+      <input
+        type="text"
+        id="search-input"
+        placeholder="e.g. A18 or 18"
+        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 text-base"
+        autocomplete="off"
+        autofocus
+      >
+      <p class="text-xs text-slate-400 mt-1.5">
+        Letter+number (e.g. <strong>A18</strong>) or just a number.
+      </p>
+    </div>
+
+    <!-- Browse catalog — scrollable within panel -->
+    {% if catalog %}
+      <div class="bg-white rounded-xl shadow p-4 flex-1 overflow-y-auto min-h-0">
+        <h2 class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Browse All Parts</h2>
+        <div class="space-y-3">
+          {% for entry in catalog %}
+            <div>
+              <div class="text-xs font-semibold text-slate-500 mb-1">
+                Sprue {{ entry.letter }}{% if entry.name %} — {{ entry.name }}{% endif %}
+                <span class="font-normal text-slate-400">({{ entry.numbers | length }})</span>
+              </div>
+              <div class="flex flex-wrap gap-1">
+                {% for num in entry.numbers %}
+                  <button
+                    onclick="quickSearch('{{ entry.letter }}{{ num }}')"
+                    class="px-1.5 py-0.5 text-xs font-mono font-semibold rounded bg-slate-100 text-slate-700 hover:bg-amber-400 hover:text-white transition-colors">
+                    {{ num }}
+                  </button>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+  </div>
+
+  <!-- ── Right results area ── -->
+  <div class="flex-1 min-w-0 pr-4">
+    <div id="search-results" class="space-y-6"></div>
+    <div id="no-results" class="hidden bg-white rounded-xl shadow p-8 text-center text-slate-500">
+      No parts found matching your search.
+    </div>
+    <div id="search-placeholder" class="bg-white rounded-xl shadow p-10 text-center text-slate-400">
+      <p class="text-base">Search for a part number to see the sprue image.</p>
+      <p class="text-sm mt-1">Or click any number in the catalog on the left.</p>
+    </div>
+  </div>
+
 </div>
 {% endblock %}
 

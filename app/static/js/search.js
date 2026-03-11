@@ -2,14 +2,16 @@
   const input = document.getElementById('search-input');
   const resultsDiv = document.getElementById('search-results');
   const noResults = document.getElementById('no-results');
+  const placeholder = document.getElementById('search-placeholder');
   let debounceTimer = null;
   let selectTimer = null;
 
   // Called by number chip buttons in the catalog section
-  window.quickSearch = function(q) {
+  window.quickSearch = async function(q) {
     input.value = q;
     input.focus();
-    fetchResults(q);
+    await fetchResults(q);
+    resultsDiv.firstElementChild?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   input.addEventListener('input', () => {
@@ -19,8 +21,10 @@
     if (!q) {
       resultsDiv.innerHTML = '';
       noResults.classList.add('hidden');
+      placeholder && placeholder.classList.remove('hidden');
       return;
     }
+    placeholder && placeholder.classList.add('hidden');
     debounceTimer = setTimeout(() => fetchResults(q), 300);
     selectTimer = setTimeout(() => input.select(), 2000);
   });
@@ -31,6 +35,7 @@
       if (!res.ok) return;
       const data = await res.json();
       renderResults(data);
+      resultsDiv.firstElementChild?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) {
       console.error('Search error:', e);
     }
