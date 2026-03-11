@@ -6,6 +6,7 @@
   let locations = INITIAL_LOCATIONS.map(l => ({ ...l }));
   let mode = 'select';
   let selectedId = null;
+  let showOverlay = true;
   // Tracks which instance index was last selected per number value, for cycling.
   const lastPickedIndex = {};
 
@@ -46,6 +47,7 @@
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!showOverlay) return;
 
     for (const loc of locations) {
       const [x, y] = toCanvas(loc.x, loc.y);
@@ -312,6 +314,26 @@
     window.location.reload();
   }
   window.rerunOcr = rerunOcr;
+
+  // ── Overlay toggle ───────────────────────────────────────────────────────
+  function toggleOverlay() {
+    showOverlay = !showOverlay;
+    const btn = document.getElementById('btn-toggle-overlay');
+    btn.textContent = showOverlay ? 'Hide Numbers' : 'Show Numbers';
+    btn.className = showOverlay
+      ? 'px-3 py-1.5 text-sm rounded-lg bg-slate-200 text-slate-700 font-semibold hover:bg-slate-300'
+      : 'px-3 py-1.5 text-sm rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600';
+    draw();
+  }
+  window.toggleOverlay = toggleOverlay;
+
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────
+  document.getElementById('edit-number').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+  });
+  document.getElementById('add-number').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); saveNewBox(); }
+  });
 
   // ── Init ─────────────────────────────────────────────────────────────────
   setMode('select');

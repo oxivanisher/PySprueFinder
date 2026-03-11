@@ -3,6 +3,7 @@
   const resultsDiv = document.getElementById('search-results');
   const noResults = document.getElementById('no-results');
   let debounceTimer = null;
+  let selectTimer = null;
 
   // Called by number chip buttons in the catalog section
   window.quickSearch = function(q) {
@@ -13,6 +14,7 @@
 
   input.addEventListener('input', () => {
     clearTimeout(debounceTimer);
+    clearTimeout(selectTimer);
     const q = input.value.trim();
     if (!q) {
       resultsDiv.innerHTML = '';
@@ -20,6 +22,7 @@
       return;
     }
     debounceTimer = setTimeout(() => fetchResults(q), 300);
+    selectTimer = setTimeout(() => input.select(), 2000);
   });
 
   async function fetchResults(q) {
