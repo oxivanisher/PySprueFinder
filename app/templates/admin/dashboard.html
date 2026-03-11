@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard — PySprueFinder{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-3xl font-bold text-slate-800">Admin Dashboard</h1>
+    <a href="/admin/projects/new"
+       class="px-4 py-2 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600">
+      + New Project
+    </a>
+  </div>
+
+  {% if projects %}
+    <div class="grid gap-4">
+      {% for project in projects %}
+        <div class="bg-white rounded-xl shadow p-5 border border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-slate-800">{{ project.name }}</h2>
+            <p class="text-sm text-slate-500">{{ project.sprues | length }} sprue(s) · Created {{ project.created_at.strftime('%Y-%m-%d') }}</p>
+          </div>
+          <div class="flex gap-2">
+            <a href="/projects/{{ project.id }}"
+               class="px-3 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">
+              View
+            </a>
+            <a href="/admin/projects/{{ project.id }}"
+               class="px-3 py-1.5 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600">
+              Edit
+            </a>
+            <button
+              onclick="deleteProject({{ project.id }}, '{{ project.name | e }}')"
+              class="px-3 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600">
+              Delete
+            </button>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="bg-white rounded-xl shadow p-8 text-center text-slate-500">
+      <p>No projects yet. Create your first project!</p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deleteProject(id, name) {
+  if (!confirm(`Delete project "${name}" and all its sprues? This cannot be undone.`)) return;
+  const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+  if (res.ok) {
+    window.location.reload();
+  } else {
+    alert('Failed to delete project.');
+  }
+}
+</script>
+{% endblock %}

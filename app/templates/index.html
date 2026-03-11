@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}PySprueFinder — Projects{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <h1 class="text-3xl font-bold text-slate-800 mb-6">Sprue Projects</h1>
+
+  {% if projects %}
+    <div class="grid gap-4">
+      {% for project in projects %}
+        <a href="/projects/{{ project.id }}"
+           class="block bg-white rounded-xl shadow hover:shadow-md transition p-5 border border-slate-200 hover:border-amber-400">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-semibold text-slate-800">{{ project.name }}</h2>
+            <span class="text-sm text-slate-500">{{ project.sprues | length }} sprue(s)</span>
+          </div>
+          <p class="text-sm text-slate-400 mt-1">
+            Created {{ project.created_at.strftime('%Y-%m-%d') }}
+          </p>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="bg-white rounded-xl shadow p-8 text-center text-slate-500">
+      <p class="text-lg">No projects yet.</p>
+      {% if request.session.get('is_admin') %}
+        <a href="/admin/projects/new"
+           class="inline-block mt-4 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600">
+          Create First Project
+        </a>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}PySprueFinder{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            amber: { 500: '#f59e0b' },
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+
+  <nav class="bg-slate-900 text-white shadow-lg">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/" class="text-xl font-bold text-amber-400 hover:text-amber-300">
+        &#9632; PySprueFinder
+      </a>
+      <div class="flex items-center gap-4 text-sm">
+        {% if request.session.get('is_admin') %}
+          <a href="/admin" class="hover:text-amber-400">Admin</a>
+          <a href="/logout" class="hover:text-amber-400">Logout</a>
+        {% else %}
+          <a href="/login" class="hover:text-amber-400">Admin Login</a>
+        {% endif %}
+      </div>
+    </div>
+  </nav>
+
+  <main class="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="bg-slate-900 text-slate-400 text-center text-xs py-3">
+    PySprueFinder
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — Admin — PySprueFinder{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+  <a href="/admin" class="text-sm text-slate-500 hover:text-amber-500">&larr; Dashboard</a>
+  <h1 class="text-2xl font-bold text-slate-800 mt-2 mb-6">{{ project.name }}</h1>
+
+  {% if error %}
+    <div class="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  <!-- Rename -->
+  <div class="bg-white rounded-xl shadow p-5 mb-6">
+    <h2 class="text-sm font-semibold text-slate-600 mb-3 uppercase tracking-wide">Rename Project</h2>
+    <form method="post" action="/admin/projects/{{ project.id }}/name" class="flex gap-2">
+      <input
+        type="text"
+        name="name"
+        value="{{ project.name }}"
+        class="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
+        required
+      >
+      <button type="submit"
+              class="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-semibold">
+        Save
+      </button>
+    </form>
+  </div>
+
+  <!-- Sprues list -->
+  <div class="bg-white rounded-xl shadow p-5 mb-6">
+    <h2 class="text-sm font-semibold text-slate-600 mb-4 uppercase tracking-wide">
+      Sprues ({{ project.sprues | length }})
+    </h2>
+
+    {% if project.sprues %}
+      <div class="grid gap-3 mb-4">
+        {% for sprue in project.sprues %}
+          <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <img src="/uploads/{{ sprue.image_filename }}"
+                 class="w-16 h-12 object-cover rounded border"
+                 alt="Sprue {{ sprue.letter }}">
+            <div class="flex-1 min-w-0">
+              <div class="font-semibold text-slate-800">
+                Sprue {{ sprue.letter }}
+                {% if sprue.name %}<span class="font-normal text-slate-500">— {{ sprue.name }}</span>{% endif %}
+              </div>
+              <div class="text-xs text-slate-500">
+                {{ sprue.number_locations | length }} detected number(s)
+              </div>
+            </div>
+            <div class="flex gap-2 flex-shrink-0">
+              <a href="/admin/sprues/{{ sprue.id }}"
+                 class="px-3 py-1 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600">
+                Edit
+              </a>
+              <button
+                onclick="deleteSprue({{ sprue.id }}, '{{ sprue.letter }}')"
+                class="px-3 py-1 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600">
+                Delete
+              </button>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-slate-500 text-sm mb-4">No sprues yet.</p>
+    {% endif %}
+  </div>
+
+  <!-- Upload new sprue -->
+  <div class="bg-white rounded-xl shadow p-5 mb-6">
+    <h2 class="text-sm font-semibold text-slate-600 mb-4 uppercase tracking-wide">Upload New Sprue</h2>
+    <form method="post"
+          action="/admin/projects/{{ project.id }}/sprues"
+          enctype="multipart/form-data"
+          class="space-y-3">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Sprue Letter *</label>
+          <input type="text" name="letter" maxlength="5"
+                 placeholder="A"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 uppercase"
+                 required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Name (optional)</label>
+          <input type="text" name="name" maxlength="200"
+                 placeholder="Infantry Bodies"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400">
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">OCR Profile</label>
+        <select name="profile"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-sm">
+          <option value="auto">Auto — all passes, max recall (slow)</option>
+          <option value="clear">Clear Photo — fast, low noise</option>
+          <option value="embossed">Embossed Plastic — surface relief focus</option>
+          <option value="raw">Raw — no preprocessing</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Image *</label>
+        <input type="file" name="image" accept="image/*"
+               class="w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-amber-500 file:text-white file:font-semibold hover:file:bg-amber-600"
+               required>
+      </div>
+      <button type="submit"
+              class="w-full py-2 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600">
+        Upload &amp; Run OCR
+      </button>
+    </form>
+  </div>
+
+  <!-- Danger zone -->
+  <div class="bg-white rounded-xl shadow p-5 border border-red-100">
+    <h2 class="text-sm font-semibold text-red-600 mb-3 uppercase tracking-wide">Danger Zone</h2>
+    <button onclick="deleteProject({{ project.id }}, '{{ project.name | e }}')"
+            class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm font-semibold">
+      Delete Entire Project
+    </button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deleteSprue(id, letter) {
+  if (!confirm(`Delete Sprue ${letter} and all its number data?`)) return;
+  const res = await fetch(`/api/sprues/${id}`, { method: 'DELETE' });
+  if (res.ok) window.location.reload();
+  else alert('Failed to delete sprue.');
+}
+
+async function deleteProject(id, name) {
+  if (!confirm(`Delete project "${name}" and ALL its sprues? This cannot be undone.`)) return;
+  const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+  if (res.ok) window.location.href = '/admin';
+  else alert('Failed to delete project.');
+}
+</script>
+{% endblock %}
