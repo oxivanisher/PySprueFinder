@@ -8,11 +8,12 @@ PROFILES: dict[str, str] = {
     "auto": "Auto (all profiles, font-filtered union)",
     "clear": "Clear Photo (fast)",
     "embossed": "Embossed Plastic",
+    "bw": "Black & White (Otsu threshold)",
     "raw": "Raw (no preprocessing)",
 }
 
 # Profiles combined in "auto" mode.
-_AUTO_CANDIDATES = ("clear", "embossed", "raw")
+_AUTO_CANDIDATES = ("clear", "embossed", "bw", "raw")
 
 # Upscale factor applied before every Tesseract call.
 # Doubles the apparent size of text — critical for small sprue numbers.
@@ -103,6 +104,20 @@ def _prep_blackhat(gray: np.ndarray) -> np.ndarray:
     return cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(bh)
 
 
+def _prep_bw_otsu(gray: np.ndarray) -> np.ndarray:
+    """
+    Global Otsu threshold after a mild Gaussian blur.
+
+    Otsu's method finds the intensity that maximises between-class variance,
+    which works well for a bimodal histogram — e.g. a pale-grey sprue body
+    vs. slightly-darker embossed numbers.  The mild blur reduces sensor noise
+    so the two peaks stay well-separated.
+    """
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, bw = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return bw
+
+
 def _prep_sobel(gray: np.ndarray) -> np.ndarray:
     gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
@@ -187,6 +202,12 @@ def _detect_clear(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
     return _run_tesseract(thresh) + _run_tesseract(cv2.bitwise_not(thresh))
 
 
+def _detect_bw(gray: np.ndarray) -> list[dict]:
+    """2 passes — Otsu threshold on both polarities (light-on-dark + dark-on-light)."""
+    bw = _prep_bw_otsu(gray)
+    return _run_tesseract(bw) + _run_tesseract(cv2.bitwise_not(bw))
+
+
 def _detect_embossed(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
     """5 passes — emphasises surface relief features."""
     embossed = _prep_emboss(gray)
@@ -208,6 +229,8 @@ def _run_profile(profile: str, gray_raw: np.ndarray, gray: np.ndarray, sharp: np
         raw = _detect_clear(gray, sharp)
     elif profile == "embossed":
         raw = _detect_embossed(gray, sharp)
+    elif profile == "bw":
+        raw = _detect_bw(gray)
     else:
         raise ValueError(f"Unknown profile: {profile!r}")
     return _filter_by_font_size(_merge(raw))
@@ -297,13 +320,20 @@ def get_debug_preview(image_path: str, profile: str = "auto") -> bytes:
             ("Black-hat (recessed features)", _prep_blackhat(gray)),
             ("Sobel Gradient Magnitude", _prep_sobel(sharp)),
         ]
+    elif profile == "bw":
+        bw = _prep_bw_otsu(gray)
+        panels = [
+            ("Otsu B&W Threshold", bw),
+            ("Otsu B&W Inverted", cv2.bitwise_not(bw)),
+        ]
     else:  # auto — show one representative panel per candidate
         thresh = _prep_clahe_thresh(sharp)
+        bw = _prep_bw_otsu(gray)
         panels = [
             ("Clear: CLAHE + Threshold", thresh),
             ("Clear: Inverted Threshold", cv2.bitwise_not(thresh)),
+            ("B&W: Otsu Threshold", bw),
             ("Embossed: Emboss (6-dir)", _prep_emboss(gray)),
-            ("Embossed: Top-hat", _prep_tophat(gray)),
         ]
 
     return _make_preview_grid(panels)
