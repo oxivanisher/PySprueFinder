@@ -5,11 +5,18 @@ import numpy as np
 import pytesseract
 
 PROFILES: dict[str, str] = {
-    "auto": "Auto (all passes, max recall)",
+    "auto": "Auto (all profiles, font-filtered union)",
     "clear": "Clear Photo (fast)",
     "embossed": "Embossed Plastic",
     "raw": "Raw (no preprocessing)",
 }
+
+# Profiles combined in "auto" mode.
+_AUTO_CANDIDATES = ("clear", "embossed", "raw")
+
+# Upscale factor applied before every Tesseract call.
+# Doubles the apparent size of text — critical for small sprue numbers.
+_OCR_UPSCALE = 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -17,8 +24,17 @@ PROFILES: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 def _run_tesseract(img: np.ndarray, psm: int = 11) -> list[dict]:
+    """
+    Upscale the image by _OCR_UPSCALE before passing to Tesseract, then map
+    bounding boxes back to the original pixel space.  Upscaling is the single
+    most effective way to improve detection of small sprue numbers.
+    """
+    scale = _OCR_UPSCALE
+    h, w = img.shape[:2]
+    large = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC)
+
     data = pytesseract.image_to_data(
-        img,
+        large,
         config=f"--psm {psm} --oem 3 -c tessedit_char_whitelist=0123456789",
         output_type=pytesseract.Output.DICT,
     )
@@ -26,7 +42,7 @@ def _run_tesseract(img: np.ndarray, psm: int = 11) -> list[dict]:
     for i in range(len(data["text"])):
         text = data["text"][i].strip()
         conf = int(data["conf"][i])
-        if not text or conf < 25:
+        if not text or conf < 15:
             continue
         if not re.fullmatch(r"\d+", text):
             continue
@@ -35,10 +51,11 @@ def _run_tesseract(img: np.ndarray, psm: int = 11) -> list[dict]:
             continue
         results.append({
             "number": num,
-            "px_x": data["left"][i],
-            "px_y": data["top"][i],
-            "px_w": data["width"][i],
-            "px_h": data["height"][i],
+            # Map coordinates back to the original (pre-upscale) pixel space
+            "px_x": int(data["left"][i] / scale),
+            "px_y": int(data["top"][i] / scale),
+            "px_w": int(data["width"][i] / scale),
+            "px_h": int(data["height"][i] / scale),
             "confidence": conf,
         })
     return results
@@ -128,7 +145,40 @@ def _merge(detections: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Profile-specific detection sets
+# Font-size filter
+# ---------------------------------------------------------------------------
+
+def _filter_by_font_size(detections: list[dict], tolerance: float = 0.20) -> list[dict]:
+    """
+    Discard detections whose bounding-box height deviates more than
+    `tolerance` from the median height of all detections.
+
+    All numbers on a sprue share the same font size, so outliers
+    (e.g. a stray digit read from a part feature) will have a noticeably
+    different bounding-box height and should be removed.
+
+    Requires at least 3 detections to establish a reliable baseline;
+    returns the input unchanged when fewer are present.
+
+    tolerance=0.20 allows for ±20% variation — enough to handle moderate
+    perspective/focus differences across a large sprue photo while still
+    catching obvious false-positive text.
+    """
+    if len(detections) < 3:
+        return detections
+
+    heights = sorted(d["px_h"] for d in detections)
+    median_h = heights[len(heights) // 2]
+    lo = median_h * (1.0 - tolerance)
+    hi = median_h * (1.0 + tolerance)
+
+    filtered = [d for d in detections if lo <= d["px_h"] <= hi]
+    # Safety net: if tolerance is somehow too tight, keep originals.
+    return filtered if filtered else detections
+
+
+# ---------------------------------------------------------------------------
+# Profile-specific raw detection (before merge + filter)
 # ---------------------------------------------------------------------------
 
 def _detect_clear(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
@@ -141,14 +191,26 @@ def _detect_embossed(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
     """5 passes — emphasises surface relief features."""
     embossed = _prep_emboss(gray)
     _, emboss_bin = cv2.threshold(embossed, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    results = (
+    return (
         _run_tesseract(embossed)
         + _run_tesseract(emboss_bin)
         + _run_tesseract(_prep_tophat(gray))
         + _run_tesseract(_prep_blackhat(gray))
         + _run_tesseract(_prep_sobel(sharp))
     )
-    return results
+
+
+def _run_profile(profile: str, gray_raw: np.ndarray, gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
+    """Run a single named profile through merge + font-size filter."""
+    if profile == "raw":
+        raw = _run_tesseract(gray_raw)
+    elif profile == "clear":
+        raw = _detect_clear(gray, sharp)
+    elif profile == "embossed":
+        raw = _detect_embossed(gray, sharp)
+    else:
+        raise ValueError(f"Unknown profile: {profile!r}")
+    return _filter_by_font_size(_merge(raw))
 
 
 # ---------------------------------------------------------------------------
@@ -170,18 +232,7 @@ def _load_and_prep(image_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray,
     return gray_raw, gray, sharp, w, h
 
 
-def process_image(image_path: str, profile: str = "auto") -> list[dict]:
-    gray_raw, gray, sharp, w, h = _load_and_prep(image_path)
-
-    if profile == "raw":
-        raw = _run_tesseract(gray_raw)
-    elif profile == "clear":
-        raw = _detect_clear(gray, sharp)
-    elif profile == "embossed":
-        raw = _detect_embossed(gray, sharp)
-    else:  # auto
-        raw = _detect_clear(gray, sharp) + _detect_embossed(gray, sharp)
-
+def _to_relative(detections: list[dict], w: int, h: int) -> list[dict]:
     return [
         {
             "number": d["number"],
@@ -191,14 +242,43 @@ def process_image(image_path: str, profile: str = "auto") -> list[dict]:
             "height": d["px_h"] / h,
             "confidence": d["confidence"],
         }
-        for d in _merge(raw)
+        for d in detections
     ]
+
+
+def process_image(image_path: str, profile: str = "auto") -> tuple[list[dict], str]:
+    """
+    Returns (detections, effective_profile).
+
+    For 'auto', runs all candidate profiles independently, applies font-size
+    filtering to each, and returns the result with the most detections.
+    Ties are broken by average confidence, then by the order in
+    _AUTO_CANDIDATES (clear > embossed > raw).
+
+    For all other profiles the font-size filter is still applied, so
+    effective_profile == profile.
+    """
+    gray_raw, gray, sharp, w, h = _load_and_prep(image_path)
+
+    if profile == "auto":
+        # Run every candidate profile independently (each gets its own
+        # merge + font-filter pass), then union all results, re-merge
+        # duplicates, and apply a final font-filter to catch any
+        # cross-profile false positives that survived their own filter.
+        union: list[dict] = []
+        for p in _AUTO_CANDIDATES:
+            union.extend(_run_profile(p, gray_raw, gray, sharp))
+        final = _filter_by_font_size(_merge(union))
+        return _to_relative(final, w, h), "auto"
+
+    dets = _run_profile(profile, gray_raw, gray, sharp)
+    return _to_relative(dets, w, h), profile
 
 
 def get_debug_preview(image_path: str, profile: str = "auto") -> bytes:
     """
-    Return a JPEG showing the key preprocessed images for the given profile.
-    No OCR is re-run — this is a pure visual aid.
+    Return a JPEG grid showing the key preprocessed images for the given profile.
+    No OCR is re-run — purely visual.
     """
     gray_raw, gray, sharp, _, _ = _load_and_prep(image_path)
 
@@ -217,13 +297,13 @@ def get_debug_preview(image_path: str, profile: str = "auto") -> bytes:
             ("Black-hat (recessed features)", _prep_blackhat(gray)),
             ("Sobel Gradient Magnitude", _prep_sobel(sharp)),
         ]
-    else:  # auto
+    else:  # auto — show one representative panel per candidate
         thresh = _prep_clahe_thresh(sharp)
         panels = [
-            ("CLAHE + Adaptive Threshold", thresh),
-            ("Inverted Threshold", cv2.bitwise_not(thresh)),
-            ("Emboss (6-dir, abs-max)", _prep_emboss(gray)),
-            ("Top-hat (raised features)", _prep_tophat(gray)),
+            ("Clear: CLAHE + Threshold", thresh),
+            ("Clear: Inverted Threshold", cv2.bitwise_not(thresh)),
+            ("Embossed: Emboss (6-dir)", _prep_emboss(gray)),
+            ("Embossed: Top-hat", _prep_tophat(gray)),
         ]
 
     return _make_preview_grid(panels)
@@ -243,19 +323,15 @@ def _make_preview_grid(panels: list[tuple[str, np.ndarray]]) -> bytes:
         cv2.putText(bar, label, (5, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 220, 255), 1, cv2.LINE_AA)
         cells.append(np.vstack([bar, bgr]))
 
-    n = len(cells)
-    if n <= 2:
+    if len(cells) <= 2:
         grid = np.hstack(cells)
     else:
-        # 2-column grid — ensure all cells have the same width
         cw = cells[0].shape[1]
         row1 = np.hstack(cells[:2])
         row2_imgs = cells[2:4]
-        # Pad last row to 2 if odd number of panels
         if len(row2_imgs) < 2:
             row2_imgs.append(np.zeros((cells[0].shape[0], cw, 3), dtype=np.uint8))
-        row2 = np.hstack(row2_imgs)
-        grid = np.vstack([row1, row2])
+        grid = np.vstack([row1, np.hstack(row2_imgs)])
 
     _, buf = cv2.imencode(".jpg", grid, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return bytes(buf)

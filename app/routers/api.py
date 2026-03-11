@@ -167,7 +167,7 @@ async def reprocess_sprue(
     db.commit()
 
     filepath = os.path.join(settings.UPLOAD_DIR, sprue.image_filename)
-    detections = process_image(filepath, profile=profile)
+    detections, effective_profile = process_image(filepath, profile=profile)
 
     for det in detections:
         db.add(NumberLocation(
@@ -179,10 +179,10 @@ async def reprocess_sprue(
             height=det["height"],
             confidence=det["confidence"],
         ))
-    sprue.ocr_profile = profile
+    sprue.ocr_profile = effective_profile
     db.commit()
 
-    return {"ok": True, "count": len(detections), "profile": profile}
+    return {"ok": True, "count": len(detections), "profile": effective_profile}
 
 
 @router.get("/sprues/{sprue_id}/ocr-preview")

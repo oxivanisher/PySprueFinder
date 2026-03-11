@@ -137,7 +137,7 @@ async def upload_sprue(
     pil_img.save(filepath, "JPEG", quality=90)
 
     # Run OCR
-    detections = process_image(filepath, profile=profile)
+    detections, effective_profile = process_image(filepath, profile=profile)
 
     # Save to DB
     sprue = Sprue(
@@ -145,7 +145,7 @@ async def upload_sprue(
         letter=letter.strip().upper(),
         name=name.strip() or None,
         image_filename=filename,
-        ocr_profile=profile,
+        ocr_profile=effective_profile,
     )
     db.add(sprue)
     db.commit()

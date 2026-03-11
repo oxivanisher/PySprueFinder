@@ -12,7 +12,8 @@
     Sprue {{ sprue.letter }}{% if sprue.name %} — {{ sprue.name }}{% endif %}
   </h1>
   {% if sprue.ocr_profile %}
-    <p class="text-xs text-slate-400 mb-4">Last OCR profile: <span class="font-semibold">{{ sprue.ocr_profile }}</span></p>
+    {% set profile_display = sprue.ocr_profile.replace('auto:', 'Auto → ') %}
+    <p class="text-xs text-slate-400 mb-4">Last OCR profile: <span class="font-semibold">{{ profile_display }}</span></p>
   {% else %}
     <div class="mb-4"></div>
   {% endif %}

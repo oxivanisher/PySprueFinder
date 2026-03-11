@@ -6,6 +6,8 @@
   let locations = INITIAL_LOCATIONS.map(l => ({ ...l }));
   let mode = 'select';
   let selectedId = null;
+  // Tracks which instance index was last selected per number value, for cycling.
+  const lastPickedIndex = {};
 
   let isDrawing = false;
   let dragStart = null;
@@ -111,8 +113,13 @@
   }
 
   function selectByNumber(num) {
-    const loc = locations.find(l => l.number === num);
-    if (!loc) return;
+    const locs = locations.filter(l => l.number === num);
+    if (!locs.length) return;
+    // Cycle through all instances of this number on repeated clicks.
+    const prev = lastPickedIndex[num] ?? -1;
+    const next = (prev + 1) % locs.length;
+    lastPickedIndex[num] = next;
+    const loc = locs[next];
     selectedId = loc.id;
     document.getElementById('panel-info').classList.add('hidden');
     document.getElementById('panel-edit').classList.remove('hidden');
@@ -198,6 +205,8 @@
 
   function deselectBox() {
     selectedId = null;
+    // Reset cycle index for all numbers so next click starts at first instance.
+    for (const k in lastPickedIndex) delete lastPickedIndex[k];
     document.getElementById('panel-edit').classList.add('hidden');
     document.getElementById('panel-info').classList.remove('hidden');
     draw();
@@ -287,7 +296,10 @@
       return;
     }
     const data = await res.json();
-    alert(`OCR complete — ${data.count} number(s) detected with profile "${data.profile}".`);
+    const profileLabel = data.profile.startsWith('auto:')
+      ? `Auto → selected "${data.profile.slice(5)}"`
+      : `"${data.profile}"`;
+    alert(`OCR complete — ${data.count} number(s) detected.\nProfile: ${profileLabel}`);
     window.location.reload();
   }
   window.rerunOcr = rerunOcr;
