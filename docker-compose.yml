@@ -16,8 +16,9 @@ services:
     volumes:
       - /srv/spruefinder/uploads/:/app/uploads
       - /srv/spruefinder/instance/:/app/instance
-    expose:
-      - "8000"
+    ports:
+      - "0.0.0.0:8000:8000"
+
     restart: unless-stopped
 
 volumes:
