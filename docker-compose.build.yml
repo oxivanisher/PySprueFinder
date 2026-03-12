@@ -1,0 +1,14 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./instance:/app/instance
+    environment:
+      - ADMIN_PASSWORD=changeme
+      - SECRET_KEY=change-this-to-a-random-secret-key
+      - DATABASE_URL=sqlite:///./instance/spruefinder.db
+      - UPLOAD_DIR=./uploads
+    restart: unless-stopped

@@ -1,11 +1,28 @@
+---
+# if pulling is not working, check the registry
+# Username: REDACTED
+# Password: REDACTED
+# URL: https://gitlab.example.com:5050
+
 services:
-  web:
-    build: .
-    ports:
-      - "8000:8000"
+  spruefinder:
+    image: gitlab.example.com:5050/example/pyspruefinder/spruefinder
+    container_name: spruefinder
+    environment:
+      - ADMIN_PASSWORD=changeme
+      - SECRET_KEY=REDACTED
+      - DATABASE_URL=sqlite:///./instance/spruefinder.db
+      - UPLOAD_DIR=./uploads
     volumes:
-      - ./uploads:/app/uploads
-      - ./instance:/app/instance
-    env_file:
-      - .env
+      - /srv/spruefinder/uploads/:/app/uploads
+      - /srv/spruefinder/instance/:/app/instance
+    expose:
+      - "8000"
     restart: unless-stopped
+
+volumes:
+  sqlite_data:
+    driver: local
+
+networks:
+  default:
