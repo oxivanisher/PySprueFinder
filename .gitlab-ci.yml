@@ -1,0 +1,33 @@
+---
+image: docker:latest
+
+stages:
+  - build
+  - release
+
+variables:
+  TEST_IMAGE: $CI_REGISTRY_IMAGE/spruefinder:$CI_COMMIT_REF_NAME
+  RELEASE_IMAGE: $CI_REGISTRY_IMAGE/spruefinder:latest
+
+before_script:
+  # login to docker registry
+  - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+
+build:
+  stage: build
+  tags:
+    - run_docker
+  script:
+    - docker build --pull -t $TEST_IMAGE .
+    - docker push $TEST_IMAGE
+
+release:
+  stage: release
+  tags:
+    - run_docker
+  script:
+    - docker pull $TEST_IMAGE
+    - docker tag $TEST_IMAGE $RELEASE_IMAGE
+    - docker push $RELEASE_IMAGE
+  only:
+    - main
