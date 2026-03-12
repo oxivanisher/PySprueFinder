@@ -6,14 +6,15 @@ import pytesseract
 
 PROFILES: dict[str, str] = {
     "auto": "Auto (all profiles, font-filtered union)",
-    "clear": "Clear Photo (fast)",
+    "clear": "Clear Photo",
+    "retinex": "Retinex (illumination normalisation)",
     "embossed": "Embossed Plastic",
     "bw": "Black & White (Otsu threshold)",
     "raw": "Raw (no preprocessing)",
 }
 
 # Profiles combined in "auto" mode.
-_AUTO_CANDIDATES = ("clear", "embossed", "bw", "raw")
+_AUTO_CANDIDATES = ("clear", "retinex", "embossed", "bw", "raw")
 
 # Upscale factor applied before every Tesseract call.
 # Doubles the apparent size of text — critical for small sprue numbers.
@@ -66,11 +67,11 @@ def _run_tesseract(img: np.ndarray, psm: int = 11) -> list[dict]:
 # Pre-processing helpers — each returns a uint8 grayscale image
 # ---------------------------------------------------------------------------
 
-def _prep_clahe_thresh(gray: np.ndarray) -> np.ndarray:
+def _prep_clahe_thresh(gray: np.ndarray, block_size: int = 11) -> np.ndarray:
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
     return cv2.adaptiveThreshold(
-        enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, block_size, 2
     )
 
 
@@ -116,6 +117,26 @@ def _prep_bw_otsu(gray: np.ndarray) -> np.ndarray:
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     _, bw = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     return bw
+
+
+def _prep_retinex(gray: np.ndarray, sigma: float) -> np.ndarray:
+    """
+    Single-scale Retinex: log(I) - gaussian_blur(log(I)), then rescaled to 0-255.
+
+    Retinex separates illumination from reflectance.  On a sprue the background
+    is a smooth, slowly-varying illumination field while the embossed numbers are
+    sharp local reflectance changes.  Subtracting the blurred log image removes
+    the low-frequency illumination and leaves the fine text detail behind, making
+    numbers visible even where contrast is very low.
+
+    sigma controls the scale of the illumination estimate:
+      - small sigma (~30)  → tight local normalisation, catches fine structure
+      - large sigma (~60)  → broader normalisation, preserves more contrast range
+    """
+    log_img = np.log1p(gray.astype(np.float32))
+    log_blur = cv2.GaussianBlur(log_img, (0, 0), sigma)
+    ret = log_img - log_blur
+    return cv2.normalize(ret, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
 
 def _prep_sobel(gray: np.ndarray) -> np.ndarray:
@@ -197,15 +218,47 @@ def _filter_by_font_size(detections: list[dict], tolerance: float = 0.20) -> lis
 # ---------------------------------------------------------------------------
 
 def _detect_clear(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
-    """2 passes — good for clear, well-lit photos."""
-    thresh = _prep_clahe_thresh(sharp)
-    return _run_tesseract(thresh) + _run_tesseract(cv2.bitwise_not(thresh))
+    """4 passes — CLAHE + adaptive threshold at two block sizes (bs=11 and bs=7).
+    The finer bs=7 grid resolves small closely-spaced numbers that bs=11 merges."""
+    thresh11 = _prep_clahe_thresh(sharp, block_size=11)
+    thresh7 = _prep_clahe_thresh(sharp, block_size=7)
+    return (
+        _run_tesseract(thresh11)
+        + _run_tesseract(cv2.bitwise_not(thresh11))
+        + _run_tesseract(thresh7)
+        + _run_tesseract(cv2.bitwise_not(thresh7))
+    )
 
 
 def _detect_bw(gray: np.ndarray) -> list[dict]:
     """2 passes — Otsu threshold on both polarities (light-on-dark + dark-on-light)."""
     bw = _prep_bw_otsu(gray)
     return _run_tesseract(bw) + _run_tesseract(cv2.bitwise_not(bw))
+
+
+def _detect_retinex(gray: np.ndarray) -> list[dict]:
+    """4 passes — single-scale Retinex at two sigmas, each in both polarities.
+
+    Retinex illumination normalisation is uniquely effective for same-colour
+    embossed text (sprue numbers) where the only contrast cue is a faint shadow.
+    sigma=30 catches tight local detail; sigma=60 captures broader relief.
+    Running both polarities handles text that is either raised (lighter than
+    surroundings after normalisation) or recessed (darker).
+    """
+    r30 = _prep_retinex(gray, sigma=30)
+    r60 = _prep_retinex(gray, sigma=60)
+
+    def _adapt(img: np.ndarray) -> np.ndarray:
+        return cv2.adaptiveThreshold(
+            img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        )
+
+    return (
+        _run_tesseract(_adapt(r30))
+        + _run_tesseract(cv2.bitwise_not(_adapt(r30)))
+        + _run_tesseract(_adapt(r60))
+        + _run_tesseract(cv2.bitwise_not(_adapt(r60)))
+    )
 
 
 def _detect_embossed(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
@@ -231,6 +284,8 @@ def _run_profile(profile: str, gray_raw: np.ndarray, gray: np.ndarray, sharp: np
         raw = _detect_embossed(gray, sharp)
     elif profile == "bw":
         raw = _detect_bw(gray)
+    elif profile == "retinex":
+        raw = _detect_retinex(gray)
     else:
         raise ValueError(f"Unknown profile: {profile!r}")
     return _filter_by_font_size(_merge(raw))
@@ -326,13 +381,28 @@ def get_debug_preview(image_path: str, profile: str = "auto") -> bytes:
             ("Otsu B&W Threshold", bw),
             ("Otsu B&W Inverted", cv2.bitwise_not(bw)),
         ]
+    elif profile == "retinex":
+        def _adapt(img: np.ndarray) -> np.ndarray:
+            return cv2.adaptiveThreshold(
+                img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+            )
+        r30 = _prep_retinex(gray, sigma=30)
+        r60 = _prep_retinex(gray, sigma=60)
+        panels = [
+            ("Retinex σ=30 (raw)", r30),
+            ("Retinex σ=30 + Adapt Thresh", _adapt(r30)),
+            ("Retinex σ=60 (raw)", r60),
+            ("Retinex σ=60 + Adapt Thresh", _adapt(r60)),
+        ]
     else:  # auto — show one representative panel per candidate
         thresh = _prep_clahe_thresh(sharp)
-        bw = _prep_bw_otsu(gray)
+        r60 = _prep_retinex(gray, sigma=60)
         panels = [
             ("Clear: CLAHE + Threshold", thresh),
-            ("Clear: Inverted Threshold", cv2.bitwise_not(thresh)),
-            ("B&W: Otsu Threshold", bw),
+            ("Retinex σ=60 + Adapt Thresh",
+             cv2.adaptiveThreshold(r60, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY, 11, 2)),
+            ("B&W: Otsu Threshold", _prep_bw_otsu(gray)),
             ("Embossed: Emboss (6-dir)", _prep_emboss(gray)),
         ]
 
