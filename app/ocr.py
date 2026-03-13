@@ -105,18 +105,18 @@ def _prep_blackhat(gray: np.ndarray) -> np.ndarray:
     return cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(bh)
 
 
-def _prep_bw_otsu(gray: np.ndarray) -> np.ndarray:
-    """
-    Global Otsu threshold after a mild Gaussian blur.
-
-    Otsu's method finds the intensity that maximises between-class variance,
-    which works well for a bimodal histogram — e.g. a pale-grey sprue body
-    vs. slightly-darker embossed numbers.  The mild blur reduces sensor noise
-    so the two peaks stay well-separated.
-    """
+def _prep_bw_fixed(gray: np.ndarray, threshold: int) -> np.ndarray:
+    """Binary threshold at a fixed intensity value after a mild Gaussian blur."""
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    _, bw = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, bw = cv2.threshold(blurred, threshold, 255, cv2.THRESH_BINARY)
     return bw
+
+
+# Threshold values swept by _detect_bw.
+# Covers the full range from mid-tone (catches dark parts vs grey sprue) up to
+# near-white (separates embossed numbers from the sprue background).
+# Steps of ~18 give 7 levels; both polarities → 14 Tesseract passes total.
+_BW_THRESHOLDS: tuple[int, ...] = tuple(range(110, 219, 18))  # 110,128,146,164,182,200,218
 
 
 def _prep_retinex(gray: np.ndarray, sigma: float) -> np.ndarray:
@@ -231,9 +231,23 @@ def _detect_clear(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
 
 
 def _detect_bw(gray: np.ndarray) -> list[dict]:
-    """2 passes — Otsu threshold on both polarities (light-on-dark + dark-on-light)."""
-    bw = _prep_bw_otsu(gray)
-    return _run_tesseract(bw) + _run_tesseract(cv2.bitwise_not(bw))
+    """14 passes — threshold sweep across _BW_THRESHOLDS, both polarities each.
+
+    Rather than relying on a single Otsu value, we threshold the image at a
+    range of fixed intensities from mid-tone up to near-white.  Each level is
+    like "dialling the exposure" to a different point: lower values isolate
+    dark features against the grey sprue; higher values separate subtle
+    embossed relief (near background brightness) from the sprue surface.
+    Running both polarities at each level ensures text is found whether it
+    appears darker or lighter than the local background at that threshold.
+    The individual results are merged and deduplicated by the caller.
+    """
+    results: list[dict] = []
+    for t in _BW_THRESHOLDS:
+        bw = _prep_bw_fixed(gray, t)
+        results += _run_tesseract(bw)
+        results += _run_tesseract(cv2.bitwise_not(bw))
+    return results
 
 
 def _detect_retinex(gray: np.ndarray) -> list[dict]:
@@ -376,11 +390,13 @@ def get_debug_preview(image_path: str, profile: str = "auto") -> bytes:
             ("Sobel Gradient Magnitude", _prep_sobel(sharp)),
         ]
     elif profile == "bw":
-        bw = _prep_bw_otsu(gray)
-        panels = [
-            ("Otsu B&W Threshold", bw),
-            ("Otsu B&W Inverted", cv2.bitwise_not(bw)),
-        ]
+        # Show 4 evenly-spaced steps from the sweep so the preview grid stays readable
+        sample_thresholds = [_BW_THRESHOLDS[i] for i in (0, 2, 4, 6)]  # 110, 146, 182, 218
+        panels = []
+        for t in sample_thresholds:
+            bw = _prep_bw_fixed(gray, t)
+            panels.append((f"B&W thresh={t}", bw))
+            panels.append((f"B&W thresh={t} inv", cv2.bitwise_not(bw)))
     elif profile == "retinex":
         def _adapt(img: np.ndarray) -> np.ndarray:
             return cv2.adaptiveThreshold(
