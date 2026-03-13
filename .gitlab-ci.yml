@@ -4,6 +4,7 @@ image: docker:latest
 stages:
   - build
   - release
+  - deploy
 
 variables:
   TEST_IMAGE: $CI_REGISTRY_IMAGE/spruefinder:$CI_COMMIT_REF_NAME
@@ -29,5 +30,17 @@ release:
     - docker pull $TEST_IMAGE
     - docker tag $TEST_IMAGE $RELEASE_IMAGE
     - docker push $RELEASE_IMAGE
+  only:
+    - main
+
+deploy:
+  stage: deploy
+  image: alpine:latest
+  tags:
+    - run_docker
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - curl -f -X POST "$PORTAINER_WEBHOOK_URL"
   only:
     - main
