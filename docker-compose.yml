@@ -11,7 +11,7 @@ services:
     environment:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
       SECRET_KEY: ${SECRET_KEY}
-      DATABASE_URL: sqlite:///./instance/spruefinder.db
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./instance/spruefinder.db}
       UPLOAD_DIR: ${UPLOAD_DIR:-./uploads}
     volumes:
       - /srv/spruefinder/uploads/:/app/uploads
