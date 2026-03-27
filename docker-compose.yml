@@ -9,15 +9,15 @@ services:
     image: gitlab.example.com:5050/example/pyspruefinder/spruefinder
     container_name: spruefinder
     environment:
-      - ADMIN_PASSWORD=changeme
-      - SECRET_KEY=REDACTED
-      - DATABASE_URL=sqlite:///./instance/spruefinder.db
-      - UPLOAD_DIR=./uploads
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      SECRET_KEY: ${SECRET_KEY}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./instance/spruefinder.db}
+      UPLOAD_DIR: ${UPLOAD_DIR:-./uploads}
     volumes:
       - /srv/spruefinder/uploads/:/app/uploads
       - /srv/spruefinder/instance/:/app/instance
     ports:
-      - "0.0.0.0:8000:8000"
+      - "${SERVICE_IP:-0.0.0.0}:8000:8000"
 
     restart: unless-stopped
 
