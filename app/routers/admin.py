@@ -27,14 +27,14 @@ async def dashboard(
 ):
     projects = db.query(Project).order_by(Project.created_at.desc()).all()
     return templates.TemplateResponse(
-        "admin/dashboard.html", {"request": request, "projects": projects}
+        request, "admin/dashboard.html", {"projects": projects}
     )
 
 
 @router.get("/projects/new", response_class=HTMLResponse)
 async def new_project_page(request: Request, _=Depends(require_admin)):
     return templates.TemplateResponse(
-        "admin/project_form.html", {"request": request, "project": None, "error": None}
+        request, "admin/project_form.html", {"project": None, "error": None}
     )
 
 
@@ -48,8 +48,8 @@ async def create_project(
     name = name.strip()
     if not name:
         return templates.TemplateResponse(
-            "admin/project_form.html",
-            {"request": request, "project": None, "error": "Name is required"},
+            request, "admin/project_form.html",
+            {"project": None, "error": "Name is required"},
         )
     project = Project(name=name)
     db.add(project)
@@ -69,7 +69,7 @@ async def edit_project(
     if not project:
         return RedirectResponse(url="/admin", status_code=302)
     return templates.TemplateResponse(
-        "admin/project_edit.html", {"request": request, "project": project}
+        request, "admin/project_edit.html", {"project": project}
     )
 
 
@@ -112,12 +112,8 @@ async def upload_sprue(
     if ext not in allowed:
         project = db.query(Project).filter(Project.id == project_id).first()
         return templates.TemplateResponse(
-            "admin/project_edit.html",
-            {
-                "request": request,
-                "project": project,
-                "error": f"Invalid file type '{ext}'. Allowed: {', '.join(allowed)}",
-            },
+            request, "admin/project_edit.html",
+            {"project": project, "error": f"Invalid file type '{ext}'. Allowed: {', '.join(allowed)}"},
         )
 
     # Save and process image
@@ -180,6 +176,6 @@ async def edit_sprue(
         for loc in sprue.number_locations
     ]
     return templates.TemplateResponse(
-        "admin/sprue_edit.html",
-        {"request": request, "sprue": sprue, "locations_json": locations_json},
+        request, "admin/sprue_edit.html",
+        {"sprue": sprue, "locations_json": locations_json},
     )

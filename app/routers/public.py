@@ -15,7 +15,7 @@ templates = Jinja2Templates(directory="app/templates")
 async def index(request: Request, db: Session = Depends(get_db)):
     projects = db.query(Project).order_by(Project.created_at.desc()).all()
     return templates.TemplateResponse(
-        "index.html", {"request": request, "projects": projects}
+        request, "index.html", {"projects": projects}
     )
 
 
@@ -36,8 +36,8 @@ async def project_view(
         if s.number_locations
     ]
     return templates.TemplateResponse(
-        "project_view.html",
-        {"request": request, "project": project, "catalog": catalog},
+        request, "project_view.html",
+        {"project": project, "catalog": catalog},
     )
 
 
@@ -45,7 +45,7 @@ async def project_view(
 async def login_page(request: Request):
     if request.session.get("is_admin"):
         return RedirectResponse(url="/admin", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
 @router.post("/login", response_class=HTMLResponse)
@@ -54,7 +54,7 @@ async def login_submit(request: Request, password: str = Form(...)):
         request.session["is_admin"] = True
         return RedirectResponse(url="/admin", status_code=302)
     return templates.TemplateResponse(
-        "login.html", {"request": request, "error": "Invalid password"}
+        request, "login.html", {"error": "Invalid password"}
     )
 
 
