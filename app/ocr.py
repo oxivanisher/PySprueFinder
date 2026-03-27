@@ -418,7 +418,7 @@ def get_debug_preview(image_path: str, profile: str = "auto") -> bytes:
             ("Retinex σ=60 + Adapt Thresh",
              cv2.adaptiveThreshold(r60, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                    cv2.THRESH_BINARY, 11, 2)),
-            ("B&W: Otsu Threshold", _prep_bw_otsu(gray)),
+            ("B&W: Otsu Threshold", cv2.threshold(cv2.GaussianBlur(gray, (5, 5), 0), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]),
             ("Embossed: Emboss (6-dir)", _prep_emboss(gray)),
         ]
 
