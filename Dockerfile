@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y \
     libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
+ARG GIT_HASH=unknown
+ENV GIT_HASH=$GIT_HASH
+
 WORKDIR /app
 
 COPY requirements.txt .

@@ -19,7 +19,7 @@ build:
   tags:
     - run_docker
   script:
-    - docker build --pull -t $TEST_IMAGE .
+    - docker build --pull --build-arg GIT_HASH=$CI_COMMIT_SHORT_SHA -t $TEST_IMAGE .
     - docker push $TEST_IMAGE
 
 release:
