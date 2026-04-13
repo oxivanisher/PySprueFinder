@@ -1,12 +1,9 @@
 ---
-# if pulling is not working, check the registry
-# Username: REDACTED
-# Password: REDACTED
-# URL: https://gitlab.example.com:5050
+# if pulling is not working, check the registry setting in portainer
 
 services:
   spruefinder:
-    image: gitlab.example.com:5050/example/pyspruefinder/spruefinder
+    image: registry.example.com/example/pyspruefinder/spruefinder
     container_name: spruefinder
     environment:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
