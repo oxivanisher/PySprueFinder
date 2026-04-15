@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 import pytesseract
 
+from app.config import settings
+
 PROFILES: dict[str, str] = {
     "auto": "Auto (all profiles, font-filtered union)",
     "clear": "Clear Photo",
@@ -17,8 +19,9 @@ PROFILES: dict[str, str] = {
 _AUTO_CANDIDATES = ("clear", "retinex", "embossed", "bw", "raw")
 
 # Upscale factor applied before every Tesseract call.
-# Doubles the apparent size of text — critical for small sprue numbers.
-_OCR_UPSCALE = 2.0
+# Set via OCR_UPSCALE env var (default 1.0 = disabled).
+# Increase to 2.0 for low-resolution images where numbers are small.
+_OCR_UPSCALE = settings.OCR_UPSCALE
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +187,7 @@ def _merge(detections: list[dict]) -> list[dict]:
 # Font-size filter
 # ---------------------------------------------------------------------------
 
-def _filter_by_font_size(detections: list[dict], tolerance: float = 0.20) -> list[dict]:
+def _filter_by_font_size(detections: list[dict], tolerance: float | None = None) -> list[dict]:
     """
     Discard detections whose bounding-box height deviates more than
     `tolerance` from the median height of all detections.
@@ -196,10 +199,10 @@ def _filter_by_font_size(detections: list[dict], tolerance: float = 0.20) -> lis
     Requires at least 3 detections to establish a reliable baseline;
     returns the input unchanged when fewer are present.
 
-    tolerance=0.20 allows for ±20% variation — enough to handle moderate
-    perspective/focus differences across a large sprue photo while still
-    catching obvious false-positive text.
+    Tolerance is read from settings (OCR_FONT_SIZE_TOLERANCE env var, default 0.10).
     """
+    if tolerance is None:
+        tolerance = settings.OCR_FONT_SIZE_TOLERANCE
     if len(detections) < 3:
         return detections
 
@@ -211,6 +214,28 @@ def _filter_by_font_size(detections: list[dict], tolerance: float = 0.20) -> lis
     filtered = [d for d in detections if lo <= d["px_h"] <= hi]
     # Safety net: if tolerance is somehow too tight, keep originals.
     return filtered if filtered else detections
+
+
+# ---------------------------------------------------------------------------
+# Cross-number overlap removal
+# ---------------------------------------------------------------------------
+
+def _remove_cross_overlaps(detections: list[dict], iou_thresh: float = 0.3) -> list[dict]:
+    """
+    Remove lower-confidence detections whose box significantly overlaps a
+    detection for a *different* number.
+
+    After same-number deduplication, distinct numbers whose bounding boxes
+    overlap are almost certainly false positives (one of them misread).
+    Processing in descending confidence order ensures the more reliable
+    detection is kept.
+    """
+    sorted_dets = sorted(detections, key=lambda d: d["confidence"], reverse=True)
+    kept: list[dict] = []
+    for det in sorted_dets:
+        if not any(k["number"] != det["number"] and _iou(det, k) > iou_thresh for k in kept):
+            kept.append(det)
+    return kept
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +327,7 @@ def _run_profile(profile: str, gray_raw: np.ndarray, gray: np.ndarray, sharp: np
         raw = _detect_retinex(gray)
     else:
         raise ValueError(f"Unknown profile: {profile!r}")
-    return _filter_by_font_size(_merge(raw))
+    return _remove_cross_overlaps(_filter_by_font_size(_merge(raw)))
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +385,7 @@ def process_image(image_path: str, profile: str = "auto") -> tuple[list[dict], s
         union: list[dict] = []
         for p in _AUTO_CANDIDATES:
             union.extend(_run_profile(p, gray_raw, gray, sharp))
-        final = _filter_by_font_size(_merge(union))
+        final = _remove_cross_overlaps(_filter_by_font_size(_merge(union)))
         return _to_relative(final, w, h), "auto"
 
     dets = _run_profile(profile, gray_raw, gray, sharp)

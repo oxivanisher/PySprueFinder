@@ -10,7 +10,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import NumberLocation, Project, Sprue
 from app.ocr import PROFILES, get_debug_preview, process_image
-from app.schemas import NumberLocationCreate, NumberLocationOut, NumberLocationUpdate, SearchResult
+from app.schemas import NumberLocationCreate, NumberLocationOut, NumberLocationUpdate, ProjectUpdate, SearchResult, SprueUpdate
 
 router = APIRouter()
 
@@ -110,6 +110,42 @@ async def delete_number(
     if not loc:
         raise HTTPException(status_code=404, detail="Number not found")
     db.delete(loc)
+    db.commit()
+    return {"ok": True}
+
+
+@router.patch("/sprues/{sprue_id}")
+async def update_sprue(
+    sprue_id: int,
+    payload: SprueUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(api_require_admin),
+):
+    sprue = db.query(Sprue).filter(Sprue.id == sprue_id).first()
+    if not sprue:
+        raise HTTPException(status_code=404, detail="Sprue not found")
+    if payload.letter is not None:
+        sprue.letter = payload.letter.strip().upper()
+    if payload.name is not None:
+        sprue.name = payload.name.strip() or None
+    db.commit()
+    return {"ok": True}
+
+
+@router.patch("/projects/{project_id}")
+async def update_project(
+    project_id: int,
+    payload: ProjectUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(api_require_admin),
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if payload.name is not None:
+        name = payload.name.strip()
+        if name:
+            project.name = name
     db.commit()
     return {"ok": True}
 

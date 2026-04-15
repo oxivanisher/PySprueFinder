@@ -7,6 +7,7 @@
   let mode = 'select';
   let selectedId = null;
   let showOverlay = true;
+  let imgDimmed = false;
   // Tracks which instance index was last selected per number value, for cycling.
   const lastPickedIndex = {};
 
@@ -327,12 +328,68 @@
   }
   window.toggleOverlay = toggleOverlay;
 
+  // ── Dim image ────────────────────────────────────────────────────────────
+  function toggleImageDim() {
+    imgDimmed = !imgDimmed;
+    img.style.filter = imgDimmed ? 'brightness(0.08)' : '';
+    const btn = document.getElementById('btn-dim-image');
+    btn.textContent = imgDimmed ? 'Brighten Image' : 'Dim Image';
+    btn.className = imgDimmed
+      ? 'px-3 py-1.5 text-sm rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600'
+      : 'px-3 py-1.5 text-sm rounded-lg bg-slate-200 text-slate-700 font-semibold hover:bg-slate-300';
+  }
+  window.toggleImageDim = toggleImageDim;
+
+  // ── Edit names panel ─────────────────────────────────────────────────────
+  let namesPanelOpen = false;
+  function toggleNamesPanel() {
+    namesPanelOpen = !namesPanelOpen;
+    document.getElementById('names-panel').classList.toggle('hidden', !namesPanelOpen);
+    document.getElementById('names-chevron').textContent = namesPanelOpen ? '▲' : '▼';
+    if (namesPanelOpen) {
+      document.getElementById('edit-project-name').value = INITIAL_PROJECT_NAME;
+      document.getElementById('edit-sprue-letter').value = INITIAL_SPRUE_LETTER;
+      document.getElementById('edit-sprue-name').value = INITIAL_SPRUE_NAME;
+    }
+  }
+  window.toggleNamesPanel = toggleNamesPanel;
+
+  async function saveNames() {
+    const projectName = document.getElementById('edit-project-name').value.trim();
+    const sprueLetter = document.getElementById('edit-sprue-letter').value.trim();
+    const sprueName = document.getElementById('edit-sprue-name').value.trim();
+
+    const [r1, r2] = await Promise.all([
+      fetch(`/api/projects/${PROJECT_ID}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: projectName || INITIAL_PROJECT_NAME }),
+      }),
+      fetch(`/api/sprues/${SPRUE_ID}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ letter: sprueLetter || INITIAL_SPRUE_LETTER, name: sprueName }),
+      }),
+    ]);
+    if (!r1.ok || !r2.ok) { alert('Failed to save names.'); return; }
+    window.location.reload();
+  }
+  window.saveNames = saveNames;
+
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   document.getElementById('edit-number').addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
   });
   document.getElementById('add-number').addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); saveNewBox(); }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (selectedId === null) return;
+    e.preventDefault();
+    deleteSelected();
   });
 
   // ── Init ─────────────────────────────────────────────────────────────────

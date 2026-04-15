@@ -32,6 +32,15 @@ class NumberLocationOut(NumberLocationBase):
     model_config = {"from_attributes": True}
 
 
+class SprueUpdate(BaseModel):
+    letter: str | None = None
+    name: str | None = None
+
+
+class ProjectUpdate(BaseModel):
+    name: str | None = None
+
+
 class SprueBase(BaseModel):
     letter: str
     name: str | None = None

@@ -43,7 +43,7 @@ Copy `.env.example` to `.env` and set `ADMIN_PASSWORD` and `SECRET_KEY`.
 
 ```
 app/
-  main.py          — FastAPI app factory
+  main.py          — FastAPI app factory; logs git hash at startup via GIT_HASH env var
   config.py        — Settings from env
   database.py      — SQLAlchemy engine + get_db
   models.py        — Project, Sprue, NumberLocation
@@ -74,9 +74,9 @@ Multi-profile system — `process_image(path, profile)` returns `(list[dict], ef
 | `raw` | No preprocessing, single Tesseract pass |
 
 Key implementation details:
-- Every Tesseract call upscales the image 2× first (`_OCR_UPSCALE = 2.0`) — critical for small sprue numbers
+- Tesseract upscale factor controlled by `OCR_UPSCALE` env var (default 1.0 = disabled); set to 2.0 for low-res images
 - Digit whitelist only (`0123456789`), valid range 1–999, confidence threshold ≥ 15
-- Deduplication via IoU > 0.3 merge; font-size filter keeps detections within ±20% of median height
+- Deduplication via IoU > 0.3 merge; font-size filter keeps detections within ±`OCR_FONT_SIZE_TOLERANCE` of median height (env var, default 0.10)
 - Returns relative coords (0.0–1.0); frontend highlight boxes use CSS `%` positioning
 - `get_debug_preview(path, profile)` returns a JPEG grid of preprocessed images (no OCR re-run)
 - Sprues table has `ocr_profile VARCHAR(50)` column added via inline migration in `main.py`
@@ -84,13 +84,13 @@ Key implementation details:
 ## Deployment & CI/CD
 
 **GitLab CI** (`.gitlab-ci.yml`) — three stages on every push, release+deploy on `main` only:
-1. `build` — `docker build` + push to GitLab registry as `spruefinder:$CI_COMMIT_REF_NAME`
+1. `build` — `docker build --build-arg GIT_HASH=$CI_COMMIT_SHORT_SHA` + push as `spruefinder:$CI_COMMIT_REF_NAME`
 2. `release` — retag as `spruefinder:latest` and push
 3. `deploy` — POST to `$PORTAINER_WEBHOOK_URL` (CI env var) to trigger Portainer redeploy
 
-**Registry:** `gitlab.example.com:5050/example/pyspruefinder/spruefinder`
+**Registry:** `registry.example.com/example/pyspruefinder/spruefinder`
 
-**Production** (`docker-compose.yml`): pulls from registry, binds `0.0.0.0:8000`, volumes at `/srv/spruefinder/`.
+**Production** (`docker-compose.yml`): pulls from registry, bind address controlled by `SERVICE_IP` env var (default `0.0.0.0`), port 8000, volumes at `/srv/spruefinder/`. Env vars use `${VAR:-default}` syntax.
 
 **Local build test** (`docker-compose.build.yml`): builds from source, binds `0.0.0.0:8000`.
 

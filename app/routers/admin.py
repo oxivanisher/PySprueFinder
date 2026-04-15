@@ -177,5 +177,5 @@ async def edit_sprue(
     ]
     return templates.TemplateResponse(
         request, "admin/sprue_edit.html",
-        {"sprue": sprue, "locations_json": locations_json},
+        {"sprue": sprue, "locations_json": locations_json, "project": sprue.project},
     )
