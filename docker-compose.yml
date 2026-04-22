@@ -3,7 +3,7 @@
 
 services:
   spruefinder:
-    image: registry.example.com/example/pyspruefinder/spruefinder
+    image: registry.example.com/example/pyspruefinder
     container_name: spruefinder
     environment:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
