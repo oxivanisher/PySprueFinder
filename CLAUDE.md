@@ -76,7 +76,7 @@ Multi-profile system — `process_image(path, profile)` returns `(list[dict], ef
 Key implementation details:
 - Tesseract upscale factor controlled by `OCR_UPSCALE` env var (default 1.0 = disabled); set to 2.0 for low-res images
 - Digit whitelist only (`0123456789`), valid range 1–999, confidence threshold ≥ 15
-- Deduplication via IoU > 0.3 merge; font-size filter keeps detections within ±`OCR_FONT_SIZE_TOLERANCE` of median height (env var, default 0.10)
+- Deduplication via IoU > 0.3 merge; font-size filter keeps detections within ±`OCR_FONT_SIZE_TOLERANCE` (env var, default 0.10) of the most common height cluster — a density/mode search, not a plain median, since noisy candidates (mold lines, texture) often outnumber genuine digits
 - Returns relative coords (0.0–1.0); frontend highlight boxes use CSS `%` positioning
 - `get_debug_preview(path, profile)` returns a JPEG grid of preprocessed images (no OCR re-run)
 - Sprues table has `ocr_profile VARCHAR(50)` column added via inline migration in `main.py`

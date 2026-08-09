@@ -205,12 +205,18 @@ def _merge(detections: list[dict]) -> list[dict]:
 
 def _filter_by_font_size(detections: list[dict], tolerance: float | None = None) -> list[dict]:
     """
-    Discard detections whose bounding-box height deviates more than
-    `tolerance` from the median height of all detections.
+    Discard detections whose bounding-box height falls outside the most
+    common size cluster among all detections.
 
-    All numbers on a sprue share the same font size, so outliers
-    (e.g. a stray digit read from a part feature) will have a noticeably
-    different bounding-box height and should be removed.
+    All numbers on a sprue share the same font size, so genuine digits form
+    a tight cluster of heights. Preprocessing noise (mold lines, tool marks,
+    plastic texture misread as digits) is frequently *more numerous* than
+    the genuine digits but scattered thinly across many different heights —
+    so a plain median can land inside the noise instead of on the real
+    digit size. Instead, for each candidate height we count how many other
+    candidates fall within `tolerance` of it, and keep the window centered
+    on whichever height has the largest such cluster (the size that recurs
+    most consistently), rather than just the middle value by count.
 
     Requires at least 3 detections to establish a reliable baseline;
     returns the input unchanged when fewer are present.
@@ -223,10 +229,15 @@ def _filter_by_font_size(detections: list[dict], tolerance: float | None = None)
         return detections
 
     heights = sorted(d["px_h"] for d in detections)
-    median_h = heights[len(heights) // 2]
-    lo = median_h * (1.0 - tolerance)
-    hi = median_h * (1.0 + tolerance)
+    best_center, best_count = heights[0], 0
+    for h in heights:
+        lo, hi = h * (1.0 - tolerance), h * (1.0 + tolerance)
+        count = sum(1 for x in heights if lo <= x <= hi)
+        if count > best_count:
+            best_center, best_count = h, count
 
+    lo = best_center * (1.0 - tolerance)
+    hi = best_center * (1.0 + tolerance)
     filtered = [d for d in detections if lo <= d["px_h"] <= hi]
     # Safety net: if tolerance is somehow too tight, keep originals.
     return filtered if filtered else detections
