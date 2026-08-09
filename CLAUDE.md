@@ -67,9 +67,9 @@ Multi-profile system — `process_image(path, profile)` returns `(list[dict], ef
 | Profile | Strategy |
 |---------|----------|
 | `auto` | Runs all candidates, merges with font-size filter, returns best |
-| `clear` | CLAHE + adaptive threshold, 2 block sizes, both polarities (4 passes) |
+| `clear` | CLAHE + adaptive threshold, 4 block sizes (7/11/21/31), both polarities (8 passes) |
 | `retinex` | Illumination normalisation at σ=30 and σ=60, both polarities (4 passes) |
-| `embossed` | 6-dir emboss, top-hat, black-hat, Sobel (5 passes) |
+| `embossed` | 6-dir emboss, Sobel, top-hat/black-hat swept across 4 kernel sizes (15/21/31/45) (11 passes) |
 | `bw` | Threshold sweep across 7 levels (110–218), both polarities (14 passes) |
 | `raw` | No preprocessing, single Tesseract pass |
 

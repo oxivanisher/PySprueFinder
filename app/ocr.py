@@ -96,14 +96,14 @@ def _prep_emboss(gray: np.ndarray) -> np.ndarray:
     return cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(result)
 
 
-def _prep_tophat(gray: np.ndarray) -> np.ndarray:
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))
+def _prep_tophat(gray: np.ndarray, kernel_size: int = 21) -> np.ndarray:
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
     th = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, kernel)
     return cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(th)
 
 
-def _prep_blackhat(gray: np.ndarray) -> np.ndarray:
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))
+def _prep_blackhat(gray: np.ndarray, kernel_size: int = 21) -> np.ndarray:
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
     bh = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
     return cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(bh)
 
@@ -120,6 +120,20 @@ def _prep_bw_fixed(gray: np.ndarray, threshold: int) -> np.ndarray:
 # near-white (separates embossed numbers from the sprue background).
 # Steps of ~18 give 7 levels; both polarities → 14 Tesseract passes total.
 _BW_THRESHOLDS: tuple[int, ...] = tuple(range(110, 219, 18))  # 110,128,146,164,182,200,218
+
+# Adaptive-threshold block sizes swept by _detect_clear, and top-hat/black-hat
+# structuring-element sizes swept by _detect_embossed.
+#
+# Sprue numbers occupy very different pixel sizes depending on how zoomed-in
+# the source photo is (a close-up shot of a small sprue vs. a wide shot of a
+# large one). A single fixed size only isolates digits within a narrow band
+# around that size — a block/kernel much smaller than the digit's stroke
+# width or bounding box effectively erases it before Tesseract ever sees it.
+# Sweeping across small→large sizes (like the BW threshold sweep already
+# does for brightness) covers that range; results are merged and
+# font-size-filtered by the caller like every other profile.
+_CLEAR_BLOCK_SIZES: tuple[int, ...] = (7, 11, 21, 31)
+_TOPHAT_KERNEL_SIZES: tuple[int, ...] = (15, 21, 31, 45)
 
 
 def _prep_retinex(gray: np.ndarray, sigma: float) -> np.ndarray:
@@ -243,16 +257,16 @@ def _remove_cross_overlaps(detections: list[dict], iou_thresh: float = 0.3) -> l
 # ---------------------------------------------------------------------------
 
 def _detect_clear(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
-    """4 passes — CLAHE + adaptive threshold at two block sizes (bs=11 and bs=7).
-    The finer bs=7 grid resolves small closely-spaced numbers that bs=11 merges."""
-    thresh11 = _prep_clahe_thresh(sharp, block_size=11)
-    thresh7 = _prep_clahe_thresh(sharp, block_size=7)
-    return (
-        _run_tesseract(thresh11)
-        + _run_tesseract(cv2.bitwise_not(thresh11))
-        + _run_tesseract(thresh7)
-        + _run_tesseract(cv2.bitwise_not(thresh7))
-    )
+    """8 passes — CLAHE + adaptive threshold swept across _CLEAR_BLOCK_SIZES,
+    both polarities each. Small block sizes resolve small, closely-spaced
+    numbers; large block sizes are needed for zoomed-in photos where digits
+    (and their stroke width) are much bigger in pixel terms."""
+    results: list[dict] = []
+    for block_size in _CLEAR_BLOCK_SIZES:
+        thresh = _prep_clahe_thresh(sharp, block_size=block_size)
+        results += _run_tesseract(thresh)
+        results += _run_tesseract(cv2.bitwise_not(thresh))
+    return results
 
 
 def _detect_bw(gray: np.ndarray) -> list[dict]:
@@ -301,16 +315,17 @@ def _detect_retinex(gray: np.ndarray) -> list[dict]:
 
 
 def _detect_embossed(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
-    """5 passes — emphasises surface relief features."""
+    """11 passes — emphasises surface relief features. Top-hat/black-hat
+    kernel size is swept across _TOPHAT_KERNEL_SIZES since the kernel must be
+    at least as large as the digit for the operation to isolate it as a
+    single "bump" — a fixed size only works within a narrow zoom range."""
     embossed = _prep_emboss(gray)
     _, emboss_bin = cv2.threshold(embossed, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    return (
-        _run_tesseract(embossed)
-        + _run_tesseract(emboss_bin)
-        + _run_tesseract(_prep_tophat(gray))
-        + _run_tesseract(_prep_blackhat(gray))
-        + _run_tesseract(_prep_sobel(sharp))
-    )
+    results = _run_tesseract(embossed) + _run_tesseract(emboss_bin) + _run_tesseract(_prep_sobel(sharp))
+    for kernel_size in _TOPHAT_KERNEL_SIZES:
+        results += _run_tesseract(_prep_tophat(gray, kernel_size))
+        results += _run_tesseract(_prep_blackhat(gray, kernel_size))
+    return results
 
 
 def _run_profile(profile: str, gray_raw: np.ndarray, gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
