@@ -96,16 +96,18 @@ def _prep_emboss(gray: np.ndarray) -> np.ndarray:
     return cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(result)
 
 
-def _prep_tophat(gray: np.ndarray, kernel_size: int = 21) -> np.ndarray:
+def _prep_tophat(gray: np.ndarray, kernel_size: int = 21, clahe: cv2.CLAHE | None = None) -> np.ndarray:
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
     th = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, kernel)
-    return cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(th)
+    clahe = clahe or cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+    return clahe.apply(th)
 
 
-def _prep_blackhat(gray: np.ndarray, kernel_size: int = 21) -> np.ndarray:
+def _prep_blackhat(gray: np.ndarray, kernel_size: int = 21, clahe: cv2.CLAHE | None = None) -> np.ndarray:
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
     bh = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
-    return cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(bh)
+    clahe = clahe or cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+    return clahe.apply(bh)
 
 
 def _prep_bw_fixed(gray: np.ndarray, threshold: int) -> np.ndarray:
@@ -256,17 +258,29 @@ def _remove_cross_overlaps(detections: list[dict], iou_thresh: float = 0.3) -> l
 # Profile-specific raw detection (before merge + filter)
 # ---------------------------------------------------------------------------
 
+def _sweep(prep_fn, values: tuple, invert: bool = True) -> list[dict]:
+    """
+    Run `prep_fn(v)` for every `v` in `values` and feed each result (plus its
+    inverted polarity, unless `invert=False`) through Tesseract, accumulating
+    all detections. Shared by every profile that sweeps a preprocessing
+    parameter (threshold level, block size, kernel size) instead of using a
+    single fixed value.
+    """
+    results: list[dict] = []
+    for v in values:
+        img = prep_fn(v)
+        results += _run_tesseract(img)
+        if invert:
+            results += _run_tesseract(cv2.bitwise_not(img))
+    return results
+
+
 def _detect_clear(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
     """8 passes — CLAHE + adaptive threshold swept across _CLEAR_BLOCK_SIZES,
     both polarities each. Small block sizes resolve small, closely-spaced
     numbers; large block sizes are needed for zoomed-in photos where digits
     (and their stroke width) are much bigger in pixel terms."""
-    results: list[dict] = []
-    for block_size in _CLEAR_BLOCK_SIZES:
-        thresh = _prep_clahe_thresh(sharp, block_size=block_size)
-        results += _run_tesseract(thresh)
-        results += _run_tesseract(cv2.bitwise_not(thresh))
-    return results
+    return _sweep(lambda bs: _prep_clahe_thresh(sharp, block_size=bs), _CLEAR_BLOCK_SIZES)
 
 
 def _detect_bw(gray: np.ndarray) -> list[dict]:
@@ -281,12 +295,7 @@ def _detect_bw(gray: np.ndarray) -> list[dict]:
     appears darker or lighter than the local background at that threshold.
     The individual results are merged and deduplicated by the caller.
     """
-    results: list[dict] = []
-    for t in _BW_THRESHOLDS:
-        bw = _prep_bw_fixed(gray, t)
-        results += _run_tesseract(bw)
-        results += _run_tesseract(cv2.bitwise_not(bw))
-    return results
+    return _sweep(lambda t: _prep_bw_fixed(gray, t), _BW_THRESHOLDS)
 
 
 def _detect_retinex(gray: np.ndarray) -> list[dict]:
@@ -322,9 +331,12 @@ def _detect_embossed(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
     embossed = _prep_emboss(gray)
     _, emboss_bin = cv2.threshold(embossed, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     results = _run_tesseract(embossed) + _run_tesseract(emboss_bin) + _run_tesseract(_prep_sobel(sharp))
-    for kernel_size in _TOPHAT_KERNEL_SIZES:
-        results += _run_tesseract(_prep_tophat(gray, kernel_size))
-        results += _run_tesseract(_prep_blackhat(gray, kernel_size))
+
+    # Shared across the whole kernel-size sweep below — CLAHE params never
+    # vary, so one instance suffices instead of rebuilding it per pass.
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+    results += _sweep(lambda ks: _prep_tophat(gray, ks, clahe=clahe), _TOPHAT_KERNEL_SIZES, invert=False)
+    results += _sweep(lambda ks: _prep_blackhat(gray, ks, clahe=clahe), _TOPHAT_KERNEL_SIZES, invert=False)
     return results
 
 
@@ -417,17 +429,24 @@ def get_debug_preview(image_path: str, profile: str = "auto") -> bytes:
     if profile == "raw":
         panels = [("Raw Grayscale (no preprocessing)", gray_raw)]
     elif profile == "clear":
-        thresh = _prep_clahe_thresh(sharp)
-        panels = [
-            ("CLAHE + Adaptive Threshold", thresh),
-            ("Inverted Threshold", cv2.bitwise_not(thresh)),
-        ]
+        # One row per swept block size, so the preview matches what
+        # detection actually tries across zoom levels.
+        panels = []
+        for block_size in _CLEAR_BLOCK_SIZES:
+            thresh = _prep_clahe_thresh(sharp, block_size=block_size)
+            panels.append((f"CLAHE + Threshold bs={block_size}", thresh))
+            panels.append((f"bs={block_size} inverted", cv2.bitwise_not(thresh)))
     elif profile == "embossed":
+        # Top-hat/black-hat shown at the smallest and largest swept kernel
+        # size to illustrate the range detection actually tries.
+        ks_lo, ks_hi = _TOPHAT_KERNEL_SIZES[0], _TOPHAT_KERNEL_SIZES[-1]
         panels = [
             ("Emboss (6-dir, abs-max)", _prep_emboss(gray)),
-            ("Top-hat (raised features)", _prep_tophat(gray)),
-            ("Black-hat (recessed features)", _prep_blackhat(gray)),
             ("Sobel Gradient Magnitude", _prep_sobel(sharp)),
+            (f"Top-hat ks={ks_lo}", _prep_tophat(gray, ks_lo)),
+            (f"Top-hat ks={ks_hi}", _prep_tophat(gray, ks_hi)),
+            (f"Black-hat ks={ks_lo}", _prep_blackhat(gray, ks_lo)),
+            (f"Black-hat ks={ks_hi}", _prep_blackhat(gray, ks_hi)),
         ]
     elif profile == "bw":
         # Show 4 evenly-spaced steps from the sweep so the preview grid stays readable
@@ -483,11 +502,13 @@ def _make_preview_grid(panels: list[tuple[str, np.ndarray]]) -> bytes:
         grid = np.hstack(cells)
     else:
         cw = cells[0].shape[1]
-        row1 = np.hstack(cells[:2])
-        row2_imgs = cells[2:4]
-        if len(row2_imgs) < 2:
-            row2_imgs.append(np.zeros((cells[0].shape[0], cw, 3), dtype=np.uint8))
-        grid = np.vstack([row1, np.hstack(row2_imgs)])
+        rows = []
+        for i in range(0, len(cells), 2):
+            row_imgs = cells[i:i + 2]
+            if len(row_imgs) < 2:
+                row_imgs.append(np.zeros((cells[0].shape[0], cw, 3), dtype=np.uint8))
+            rows.append(np.hstack(row_imgs))
+        grid = np.vstack(rows)
 
     _, buf = cv2.imencode(".jpg", grid, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return bytes(buf)

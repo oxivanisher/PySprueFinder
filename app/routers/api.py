@@ -2,6 +2,7 @@ import os
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -203,7 +204,7 @@ async def reprocess_sprue(
     db.commit()
 
     filepath = os.path.join(settings.UPLOAD_DIR, sprue.image_filename)
-    detections, effective_profile = process_image(filepath, profile=profile)
+    detections, effective_profile = await run_in_threadpool(process_image, filepath, profile=profile)
 
     for det in detections:
         db.add(NumberLocation(
@@ -235,5 +236,5 @@ async def ocr_preview(
         raise HTTPException(status_code=404, detail="Sprue not found")
 
     filepath = os.path.join(settings.UPLOAD_DIR, sprue.image_filename)
-    jpeg_bytes = get_debug_preview(filepath, profile=profile)
+    jpeg_bytes = await run_in_threadpool(get_debug_preview, filepath, profile=profile)
     return Response(content=jpeg_bytes, media_type="image/jpeg")

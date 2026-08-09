@@ -3,6 +3,7 @@ import uuid
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from PIL import Image
@@ -130,8 +131,8 @@ async def upload_sprue(
         pil_img = pil_img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
     pil_img.save(filepath, "JPEG", quality=90)
 
-    # Run OCR
-    detections, effective_profile = process_image(filepath, profile=profile)
+    # Run OCR (CPU-bound; offload to a thread so it doesn't block the event loop)
+    detections, effective_profile = await run_in_threadpool(process_image, filepath, profile=profile)
 
     # Save to DB
     sprue = Sprue(
