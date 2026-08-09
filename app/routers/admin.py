@@ -18,6 +18,7 @@ from app.schemas import NumberLocationOut
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+templates.env.globals["git_hash"] = settings.GIT_HASH
 
 
 @router.get("/", response_class=HTMLResponse)

@@ -4,11 +4,13 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.auth import check_password
+from app.config import settings
 from app.database import get_db
 from app.models import Project
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+templates.env.globals["git_hash"] = settings.GIT_HASH
 
 
 @router.get("/", response_class=HTMLResponse)

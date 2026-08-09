@@ -13,6 +13,7 @@ class Settings:
     MAX_OCR_PX: int = 2000
     OCR_FONT_SIZE_TOLERANCE: float = float(os.getenv("OCR_FONT_SIZE_TOLERANCE", "0.10"))
     OCR_UPSCALE: float = float(os.getenv("OCR_UPSCALE", "1.0"))
+    GIT_HASH: str = os.getenv("GIT_HASH", "unknown")
 
 
 settings = Settings()
