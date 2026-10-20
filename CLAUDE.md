@@ -110,3 +110,6 @@ Both read settings from `.env` (see `.env.example`) and persist `./instance` (DB
   and OCR always use the full image. Set via `PATCH /api/sprues/{id}` `{"crop": {...}}` (`null` clears,
   omitting leaves it). `search.js` renders the crop by scaling/offsetting the full image inside an
   `overflow:hidden` wrapper and maps highlight boxes into crop coordinates
+- Auto-crop: after OCR, `CropBox.around(detections)` (bbox of all numbers + 3% margin, needs ≥3) is applied
+  on upload, and on re-run only if the sprue has no crop yet (hand-set crops survive). The editor's
+  "Fit to Numbers" (`fitCropToNumbers` in editor.js) uses the same rule — keep them in sync

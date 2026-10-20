@@ -53,6 +53,29 @@ class CropBox(BaseModel):
             return None
         return cls(x=sprue.crop_x, y=sprue.crop_y, width=sprue.crop_w, height=sprue.crop_h)
 
+    def apply_to(self, sprue) -> None:
+        sprue.crop_x, sprue.crop_y = self.x, self.y
+        sprue.crop_w, sprue.crop_h = self.width, self.height
+
+    @classmethod
+    def around(cls, detections: list[dict], margin: float = 0.03, min_count: int = 3) -> "CropBox | None":
+        """
+        Bounding box of all detections (relative coords) plus `margin`, clamped
+        to the image. The labels sit on the sprue frame, so this frames the
+        sprue. Same rule as the editor's "Fit to Numbers" (editor.js). None with
+        fewer than `min_count` detections, whose box would cut off most of it.
+        """
+        if len(detections) < min_count:
+            return None
+        x1 = max(0.0, min(d["x"] for d in detections) - margin)
+        y1 = max(0.0, min(d["y"] for d in detections) - margin)
+        x2 = min(1.0, max(d["x"] + d["width"] for d in detections) + margin)
+        y2 = min(1.0, max(d["y"] + d["height"] for d in detections) + margin)
+        try:
+            return cls(x=round(x1, 4), y=round(y1, 4), width=round(x2 - x1, 4), height=round(y2 - y1, 4))
+        except ValueError:  # degenerate (e.g. all detections in one spot)
+            return None
+
 
 class SprueUpdate(BaseModel):
     letter: str | None = None

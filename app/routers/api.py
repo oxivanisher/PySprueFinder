@@ -226,6 +226,9 @@ async def reprocess_sprue(
             confidence=det["confidence"],
         ))
     sprue.ocr_profile = effective_profile
+    # Auto-crop only sprues without a crop, so a hand-adjusted one survives a re-run.
+    if sprue.crop_w is None and (crop := CropBox.around(detections)):
+        crop.apply_to(sprue)
     db.commit()
 
     return {"ok": True, "count": len(detections), "profile": effective_profile}

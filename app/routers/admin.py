@@ -154,6 +154,8 @@ async def upload_sprue(
         image_filename=filename,
         ocr_profile=effective_profile,
     )
+    if crop := CropBox.around(detections):
+        crop.apply_to(sprue)
     db.add(sprue)
     db.commit()
     db.refresh(sprue)

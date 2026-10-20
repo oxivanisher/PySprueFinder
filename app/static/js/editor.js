@@ -367,6 +367,7 @@
 
   // Suggest a crop: the bounding box of all detected numbers plus a margin, since
   // the labels sit on the frame and the sprue edge is just outside them.
+  // Same rule as CropBox.around() in schemas.py, which auto-crops after OCR.
   function fitCropToNumbers() {
     if (!locations.length) { setCropStatus('No numbers detected to fit to.', true); return; }
     const margin = 0.03;
