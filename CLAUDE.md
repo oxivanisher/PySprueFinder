@@ -12,7 +12,7 @@ Stack: FastAPI · SQLite/SQLAlchemy · Jinja2 · Tailwind CDN · Vanilla JS · R
 ## Environment
 
 - Python 3.12 with a virtual environment at `.venv/`
-- Black code formatter is configured in the PyCharm project (`.idea/misc.xml`)
+- Code is formatted with Black (configured in the local, untracked PyCharm project)
 
 ## Running the project
 
