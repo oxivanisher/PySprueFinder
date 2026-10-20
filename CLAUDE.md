@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Status
 
 Full-stack web app for finding Warhammer miniature parts on sprues by photo.
-Stack: FastAPI · SQLite/SQLAlchemy · Jinja2 · Tailwind CDN · Vanilla JS · Tesseract OCR · OpenCV · Docker
+Stack: FastAPI · SQLite/SQLAlchemy · Jinja2 · Tailwind CDN · Vanilla JS · RapidOCR (ONNX Runtime) · OpenCV · Docker
 
 ## Environment
 
@@ -32,10 +32,8 @@ Dependencies are in `requirements.txt`. Install with:
 pip install -r requirements.txt
 ```
 
-Tesseract OCR must be installed on the host for non-Docker dev:
-```bash
-sudo apt-get install tesseract-ocr tesseract-ocr-eng
-```
+No system OCR packages are needed: `rapidocr_onnxruntime` ships its models inside the wheel. It
+depends on `opencv-python` (not `-headless`) — never install both, they share the `cv2` module.
 
 Copy `.env.example` to `.env` and set `ADMIN_PASSWORD` and `SECRET_KEY`.
 
@@ -49,7 +47,7 @@ app/
   models.py        — Project, Sprue, NumberLocation
   schemas.py       — Pydantic schemas
   auth.py          — Session-based admin auth
-  ocr.py           — Multi-profile OCR pipeline (see below)
+  ocr.py           — Sprue-number OCR pipeline (see below)
   routers/
     public.py      — Public web routes
     admin.py       — Admin web routes (/admin/*)
@@ -62,23 +60,31 @@ uploads/           — Uploaded images (gitignored)
 
 ## OCR Pipeline (`app/ocr.py`)
 
-Multi-profile system — `process_image(path, profile)` returns `(list[dict], effective_profile)`.
+RapidOCR (PaddleOCR PP-OCRv4 detector + recogniser on ONNX Runtime). Tesseract was replaced
+because its document layout analysis returns mostly noise on sparse labels in a cluttered photo.
 
-| Profile | Strategy |
-|---------|----------|
-| `auto` | Runs all candidates, merges with font-size filter, returns best |
-| `clear` | CLAHE + adaptive threshold, 4 block sizes (7/11/21/31), both polarities (8 passes) |
-| `retinex` | Illumination normalisation at σ=30 and σ=60, both polarities (4 passes) |
-| `embossed` | 6-dir emboss, Sobel, top-hat/black-hat swept across 4 kernel sizes (15/21/31/45) (11 passes) |
-| `bw` | Threshold sweep across 7 levels (110–218), both polarities (14 passes) |
-| `raw` | No preprocessing, single Tesseract pass |
+`process_image(path, profile="auto")` returns `(list[dict], profile)`. Only `auto` exists; the
+`profile` API param and `sprues.ocr_profile` column are kept for compatibility (old rows may still
+hold legacy Tesseract profile names like `clear`/`bw`).
+
+1. **Coarse pass** at native resolution — finds bold, plated labels and measures label height.
+2. **Fine pass** upscaled so labels reach ~100 px (`_TARGET_LABEL_PX`, scale clamped 1–4×) — finds
+   the thin, low-contrast numbers moulded straight into the frame. Upscale is the dominant accuracy
+   knob; detector thresholds and CLAHE-style preprocessing made no measurable difference.
+3. Union → one detection per location (highest score wins) → `OCR_MIN_SCORE` (env, default 0.7) →
+   font-size filter keeping the densest height cluster ±`OCR_FONT_SIZE_TOLERANCE` (env, default 0.35).
 
 Key implementation details:
-- Tesseract upscale factor controlled by `OCR_UPSCALE` env var (default 1.0 = disabled); set to 2.0 for low-res images
-- Digit whitelist only (`0123456789`), valid range 1–999, confidence threshold ≥ 15
-- Deduplication via IoU > 0.3 merge; font-size filter keeps detections within ±`OCR_FONT_SIZE_TOLERANCE` (env var, default 0.10) of the most common height cluster — a density/mode search, not a plain median, since noisy candidates (mold lines, texture) often outnumber genuine digits
-- Returns relative coords (0.0–1.0); frontend highlight boxes use CSS `%` positioning
-- `get_debug_preview(path, profile)` returns a JPEG grid of preprocessed images (no OCR re-run)
+- Both passes are tiled (2400 px detector tiles, 320 px overlap; boxes touching an inner tile edge
+  are dropped) to bound memory: ~1.3 GB peak, vs ~7 GB for an untiled 2× pass on a 4000 px photo
+- RapidOCR's own resizing is disabled (`max_side_len`, `det_limit_*`) — its defaults shrink photos
+  until the digits vanish
+- Engine is a lazy singleton guarded by a lock (RapidOCR mutates per-call state)
+- Text parsed as 1–3 digits after stripping edge punctuation (`"79-"` → 79); range 1–999
+- Returns relative coords (0.0–1.0) + `confidence` 0–100; frontend highlight boxes use CSS `%`
+- `get_debug_preview(path)` re-runs OCR and returns a JPEG with accepted (green) / rejected (red) candidates
+- Benchmark, 3 full-sprue phone photos / 108 labels: ~95% recall, 0–1 false positives, 10–20 s/image
+  on a 24-core desktop. Remaining misses: rotated single digits, labels half-hidden by the frame edge
 - Sprues table has `ocr_profile VARCHAR(50)` column added via inline migration in `main.py`
 
 ## Deployment & CI/CD

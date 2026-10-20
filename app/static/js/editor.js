@@ -276,42 +276,38 @@
   // ── OCR preview ──────────────────────────────────────────────────────────
 
   async function loadPreview() {
-    const profile = document.getElementById('preview-profile').value;
     const container = document.getElementById('preview-container');
     const loading = document.getElementById('preview-loading');
+    const previewImg = document.getElementById('preview-img');
     container.classList.add('hidden');
+    loading.textContent = 'Running OCR…';
     loading.classList.remove('hidden');
-    // Cache-bust so switching profiles always reloads
-    document.getElementById('preview-img').src =
-      `/api/sprues/${SPRUE_ID}/ocr-preview?profile=${profile}&t=${Date.now()}`;
-    document.getElementById('preview-img').onload = () => {
+    previewImg.onload = () => {
       loading.classList.add('hidden');
       container.classList.remove('hidden');
     };
-    document.getElementById('preview-img').onerror = () => {
+    previewImg.onerror = () => {
       loading.textContent = 'Failed to load preview.';
     };
+    // Cache-bust so a repeated click re-runs OCR
+    previewImg.src = `/api/sprues/${SPRUE_ID}/ocr-preview?t=${Date.now()}`;
   }
   window.loadPreview = loadPreview;
 
   async function rerunOcr() {
-    const profile = document.getElementById('preview-profile').value;
-    if (!confirm(`Re-run OCR with profile "${profile}"? This replaces all existing detections.`)) return;
+    if (!confirm('Re-run OCR? This replaces all existing detections, including manual edits.')) return;
     const btn = document.getElementById('btn-rerun');
     btn.textContent = 'Running…';
     btn.disabled = true;
-    const res = await fetch(`/api/sprues/${SPRUE_ID}/reprocess?profile=${profile}`, { method: 'POST' });
+    const res = await fetch(`/api/sprues/${SPRUE_ID}/reprocess`, { method: 'POST' });
     if (!res.ok) {
       alert('OCR failed.');
-      btn.textContent = 'Apply Profile & Re-run OCR';
+      btn.textContent = 'Re-run OCR';
       btn.disabled = false;
       return;
     }
     const data = await res.json();
-    const profileLabel = data.profile.startsWith('auto:')
-      ? `Auto → selected "${data.profile.slice(5)}"`
-      : `"${data.profile}"`;
-    alert(`OCR complete — ${data.count} number(s) detected.\nProfile: ${profileLabel}`);
+    alert(`OCR complete — ${data.count} number(s) detected.`);
     window.location.reload();
   }
   window.rerunOcr = rerunOcr;

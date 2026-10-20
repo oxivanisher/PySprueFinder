@@ -1,393 +1,248 @@
+"""
+Sprue-number OCR.
+
+Uses RapidOCR — PaddleOCR's PP-OCRv4 text detector + recogniser running on
+ONNX Runtime (CPU, models bundled in the wheel, no network access needed).
+
+Why not Tesseract: sprue numbers are tiny, sparse labels scattered across a
+cluttered photo. Tesseract's page-layout analysis is built for documents and
+returns mostly noise on that input no matter how the image is preprocessed.
+A scene-text detector finds the labels directly; the only thing it needs is
+for the digits to be large enough in pixels, so the pipeline is:
+
+  1. Coarse pass at native resolution. Finds the bold, plated numbers and
+     tells us how tall a number label is in this particular photo.
+  2. Fine pass, upscaled so labels reach ~_TARGET_LABEL_PX tall. This is what
+     picks up the thin, low-contrast numbers moulded directly into the frame.
+  3. Union both passes, keep the best-scoring reading per location, drop
+     low-score and wrong-size detections.
+
+Both passes run tile-by-tile, so memory stays bounded (~1.5 GB peak) even when
+a 4000 px photo is upscaled 2-3x.
+"""
+
+import math
 import re
+import threading
 
 import cv2
 import numpy as np
-import pytesseract
 
 from app.config import settings
 
 PROFILES: dict[str, str] = {
-    "auto": "Auto (all profiles, font-filtered union)",
-    "clear": "Clear Photo",
-    "retinex": "Retinex (illumination normalisation)",
-    "embossed": "Embossed Plastic",
-    "bw": "Black & White (Otsu threshold)",
-    "raw": "Raw (no preprocessing)",
+    "auto": "Auto (adaptive upscale)",
 }
 
-# Profiles combined in "auto" mode.
-_AUTO_CANDIDATES = ("clear", "retinex", "embossed", "bw", "raw")
+# Label height (detector box, which includes some padding) the fine pass
+# upscales to. Measured on full-sprue phone photos: ~100 px gives the best
+# recall; much larger starts splitting numbers into single digits.
+_TARGET_LABEL_PX = 100.0
+_MIN_SCALE, _MAX_SCALE = 1.0, 4.0
+# Skip the fine pass when the computed upscale is this close to 1.
+_SKIP_FINE_BELOW = 1.15
+# Fallback label-height estimate when the coarse pass finds too few numbers:
+# on a photo of a whole sprue a label is roughly 2.3% of the short side.
+_FALLBACK_LABEL_FRACTION = 0.023
 
-# Upscale factor applied before every Tesseract call.
-# Set via OCR_UPSCALE env var (default 1.0 = disabled).
-# Increase to 2.0 for low-resolution images where numbers are small.
-_OCR_UPSCALE = settings.OCR_UPSCALE
+# Tiling, in upscaled (detector input) pixels. The overlap must exceed the
+# widest label (3 digits at _TARGET_LABEL_PX) so every number lies fully
+# inside at least one tile.
+_TILE_PX = 2400
+_TILE_OVERLAP_PX = 320
+_TILE_EDGE_PX = 4
+
+_engine = None
+# RapidOCR mutates per-call state (detector preprocess op), so calls must
+# not interleave. Also caps concurrent OCR memory to one image at a time.
+_engine_lock = threading.Lock()
+
+
+def _get_engine():
+    global _engine
+    if _engine is None:
+        from rapidocr_onnxruntime import RapidOCR
+
+        # We resize ourselves; stop RapidOCR from rescaling the input
+        # (its defaults shrink a 4000 px photo until the digits vanish).
+        _engine = RapidOCR(
+            max_side_len=100_000,
+            det_limit_type="min",
+            det_limit_side_len=32,
+        )
+    return _engine
 
 
 # ---------------------------------------------------------------------------
-# Tesseract wrapper
+# Detection
 # ---------------------------------------------------------------------------
 
-def _run_tesseract(img: np.ndarray, psm: int = 11) -> list[dict]:
+def _tiles(length: int, max_tile: int, overlap: int) -> tuple[list[int], int]:
+    """Split one axis into the fewest equal tiles of at most `max_tile` that
+    overlap by `overlap`. Returns (tile origins, tile length)."""
+    if length <= max_tile:
+        return [0], length
+    n = math.ceil((length - overlap) / (max_tile - overlap))
+    tile = math.ceil((length + (n - 1) * overlap) / n)
+    step = (length - tile) / (n - 1)
+    return [round(i * step) for i in range(n)], tile
+
+
+def _detect(img: np.ndarray, scale: float) -> list[dict]:
     """
-    Upscale the image by _OCR_UPSCALE before passing to Tesseract, then map
-    bounding boxes back to the original pixel space.  Upscaling is the single
-    most effective way to improve detection of small sprue numbers.
+    Run detection + recognition over `img` upscaled by `scale`, tile by tile.
+    Returns raw text detections with boxes in original-image pixels.
     """
-    scale = _OCR_UPSCALE
     h, w = img.shape[:2]
-    large = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC)
+    max_tile = int(_TILE_PX / scale)
+    overlap = int(_TILE_OVERLAP_PX / scale)
+    edge = _TILE_EDGE_PX / scale
+    y_origins, tile_h = _tiles(h, max_tile, overlap)
+    x_origins, tile_w = _tiles(w, max_tile, overlap)
+    engine = _get_engine()
 
-    data = pytesseract.image_to_data(
-        large,
-        config=f"--psm {psm} --oem 3 -c tessedit_char_whitelist=0123456789",
-        output_type=pytesseract.Output.DICT,
-    )
-    results = []
-    for i in range(len(data["text"])):
-        text = data["text"][i].strip()
-        conf = int(data["conf"][i])
-        if not text or conf < 15:
-            continue
-        if not re.fullmatch(r"\d+", text):
-            continue
-        num = int(text)
-        if not (1 <= num <= 999):
-            continue
-        results.append({
-            "number": num,
-            # Map coordinates back to the original (pre-upscale) pixel space
-            "px_x": int(data["left"][i] / scale),
-            "px_y": int(data["top"][i] / scale),
-            "px_w": int(data["width"][i] / scale),
-            "px_h": int(data["height"][i] / scale),
-            "confidence": conf,
-        })
-    return results
-
-
-# ---------------------------------------------------------------------------
-# Pre-processing helpers — each returns a uint8 grayscale image
-# ---------------------------------------------------------------------------
-
-def _prep_clahe_thresh(gray: np.ndarray, block_size: int = 11) -> np.ndarray:
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
-    return cv2.adaptiveThreshold(
-        enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, block_size, 2
-    )
+    out = []
+    for y0 in y_origins:
+        for x0 in x_origins:
+            crop = img[y0:y0 + tile_h, x0:x0 + tile_w]
+            ch, cw = crop.shape[:2]
+            if scale != 1.0:
+                crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+            with _engine_lock:
+                result, _ = engine(crop, use_cls=False)
+            for quad, text, score in result or []:
+                xs = [p[0] / scale for p in quad]
+                ys = [p[1] / scale for p in quad]
+                x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+                # A box touching an inner tile edge is probably a number cut
+                # in half; the overlapping neighbour tile sees it whole.
+                if (x0 > 0 and x1 < edge) or (y0 > 0 and y1 < edge) \
+                        or (x0 + cw < w and x2 > cw - edge) or (y0 + ch < h and y2 > ch - edge):
+                    continue
+                out.append({
+                    "text": text,
+                    "score": float(score),
+                    "px_x": x0 + x1,
+                    "px_y": y0 + y1,
+                    "px_w": x2 - x1,
+                    "px_h": y2 - y1,
+                })
+    return out
 
 
-def _prep_emboss(gray: np.ndarray) -> np.ndarray:
-    """6-direction emboss with absolute max response + CLAHE."""
-    kernels = [
-        np.array([[-2, -1, 0], [-1, 0, 1], [0, 1, 2]], dtype=np.float32),
-        np.array([[0, -1, -2], [1, 0, -1], [2, 1, 0]], dtype=np.float32),
-        np.array([[2, 1, 0], [1, 0, -1], [0, -1, -2]], dtype=np.float32),
-        np.array([[0, 1, 2], [-1, 0, 1], [-2, -1, 0]], dtype=np.float32),
-        np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=np.float32),
-        np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=np.float32),
-    ]
-    src = gray.astype(np.float32)
-    acc = np.zeros(gray.shape, dtype=np.float32)
-    for k in kernels:
-        acc = np.maximum(acc, np.abs(cv2.filter2D(src, -1, k)))
-    result = cv2.normalize(acc, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    return cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(result)
+_EDGE_PUNCT = "-_.,:;'\"`|()[]"
 
 
-def _prep_tophat(gray: np.ndarray, kernel_size: int = 21, clahe: cv2.CLAHE | None = None) -> np.ndarray:
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    th = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, kernel)
-    clahe = clahe or cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
-    return clahe.apply(th)
+def _parse_number(text: str) -> int | None:
+    """Sprue labels are 1-3 digits. Tolerate stray edge punctuation ("79-")."""
+    t = text.replace(" ", "").strip(_EDGE_PUNCT)
+    if not re.fullmatch(r"\d{1,3}", t):
+        return None
+    n = int(t)
+    return n if 1 <= n <= 999 else None
 
 
-def _prep_blackhat(gray: np.ndarray, kernel_size: int = 21, clahe: cv2.CLAHE | None = None) -> np.ndarray:
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    bh = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
-    clahe = clahe or cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
-    return clahe.apply(bh)
-
-
-def _prep_bw_fixed(gray: np.ndarray, threshold: int) -> np.ndarray:
-    """Binary threshold at a fixed intensity value after a mild Gaussian blur."""
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    _, bw = cv2.threshold(blurred, threshold, 255, cv2.THRESH_BINARY)
-    return bw
-
-
-# Threshold values swept by _detect_bw.
-# Covers the full range from mid-tone (catches dark parts vs grey sprue) up to
-# near-white (separates embossed numbers from the sprue background).
-# Steps of ~18 give 7 levels; both polarities → 14 Tesseract passes total.
-_BW_THRESHOLDS: tuple[int, ...] = tuple(range(110, 219, 18))  # 110,128,146,164,182,200,218
-
-# Adaptive-threshold block sizes swept by _detect_clear, and top-hat/black-hat
-# structuring-element sizes swept by _detect_embossed.
-#
-# Sprue numbers occupy very different pixel sizes depending on how zoomed-in
-# the source photo is (a close-up shot of a small sprue vs. a wide shot of a
-# large one). A single fixed size only isolates digits within a narrow band
-# around that size — a block/kernel much smaller than the digit's stroke
-# width or bounding box effectively erases it before Tesseract ever sees it.
-# Sweeping across small→large sizes (like the BW threshold sweep already
-# does for brightness) covers that range; results are merged and
-# font-size-filtered by the caller like every other profile.
-_CLEAR_BLOCK_SIZES: tuple[int, ...] = (7, 11, 21, 31)
-_TOPHAT_KERNEL_SIZES: tuple[int, ...] = (15, 21, 31, 45)
-
-
-def _prep_retinex(gray: np.ndarray, sigma: float) -> np.ndarray:
-    """
-    Single-scale Retinex: log(I) - gaussian_blur(log(I)), then rescaled to 0-255.
-
-    Retinex separates illumination from reflectance.  On a sprue the background
-    is a smooth, slowly-varying illumination field while the embossed numbers are
-    sharp local reflectance changes.  Subtracting the blurred log image removes
-    the low-frequency illumination and leaves the fine text detail behind, making
-    numbers visible even where contrast is very low.
-
-    sigma controls the scale of the illumination estimate:
-      - small sigma (~30)  → tight local normalisation, catches fine structure
-      - large sigma (~60)  → broader normalisation, preserves more contrast range
-    """
-    log_img = np.log1p(gray.astype(np.float32))
-    log_blur = cv2.GaussianBlur(log_img, (0, 0), sigma)
-    ret = log_img - log_blur
-    return cv2.normalize(ret, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-
-
-def _prep_sobel(gray: np.ndarray) -> np.ndarray:
-    gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-    mag = np.sqrt(gx ** 2 + gy ** 2)
-    mag = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    return cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8)).apply(mag)
+def _numbers(raw: list[dict]) -> list[dict]:
+    out = []
+    for d in raw:
+        n = _parse_number(d["text"])
+        if n is not None:
+            out.append({**d, "number": n})
+    return out
 
 
 # ---------------------------------------------------------------------------
-# Deduplication
+# Filtering
 # ---------------------------------------------------------------------------
 
-def _iou(a: dict, b: dict) -> float:
-    ax1, ay1 = a["px_x"], a["px_y"]
-    ax2, ay2 = ax1 + a["px_w"], ay1 + a["px_h"]
-    bx1, by1 = b["px_x"], b["px_y"]
-    bx2, by2 = bx1 + b["px_w"], by1 + b["px_h"]
-    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
-    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
-    if ix2 <= ix1 or iy2 <= iy1:
-        return 0.0
-    inter = (ix2 - ix1) * (iy2 - iy1)
-    union = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - inter
-    return inter / union if union else 0.0
+def _overlaps(a: dict, b: dict) -> bool:
+    """True if either box's centre lies inside the other box."""
+    def centre_in(p, q):
+        cx, cy = p["px_x"] + p["px_w"] / 2, p["px_y"] + p["px_h"] / 2
+        return q["px_x"] <= cx <= q["px_x"] + q["px_w"] and q["px_y"] <= cy <= q["px_y"] + q["px_h"]
+    return centre_in(a, b) or centre_in(b, a)
 
 
 def _merge(detections: list[dict]) -> list[dict]:
-    merged, used = [], [False] * len(detections)
-    for i, det in enumerate(detections):
-        if used[i]:
-            continue
-        group = [det]
-        used[i] = True
-        for j, other in enumerate(detections):
-            if not used[j] and i != j and det["number"] == other["number"] and _iou(det, other) > 0.3:
-                group.append(other)
-                used[j] = True
-        merged.append(max(group, key=lambda d: d["confidence"]))
-    return merged
-
-
-# ---------------------------------------------------------------------------
-# Font-size filter
-# ---------------------------------------------------------------------------
-
-def _filter_by_font_size(detections: list[dict], tolerance: float | None = None) -> list[dict]:
-    """
-    Discard detections whose bounding-box height falls outside the most
-    common size cluster among all detections.
-
-    All numbers on a sprue share the same font size, so genuine digits form
-    a tight cluster of heights. Preprocessing noise (mold lines, tool marks,
-    plastic texture misread as digits) is frequently *more numerous* than
-    the genuine digits but scattered thinly across many different heights —
-    so a plain median can land inside the noise instead of on the real
-    digit size. Instead, for each candidate height we count how many other
-    candidates fall within `tolerance` of it, and keep the window centered
-    on whichever height has the largest such cluster (the size that recurs
-    most consistently), rather than just the middle value by count.
-
-    Requires at least 3 detections to establish a reliable baseline;
-    returns the input unchanged when fewer are present.
-
-    Tolerance is read from settings (OCR_FONT_SIZE_TOLERANCE env var, default 0.10).
-    """
-    if tolerance is None:
-        tolerance = settings.OCR_FONT_SIZE_TOLERANCE
-    if len(detections) < 3:
-        return detections
-
-    heights = sorted(d["px_h"] for d in detections)
-    best_center, best_count = heights[0], 0
-    for h in heights:
-        lo, hi = h * (1.0 - tolerance), h * (1.0 + tolerance)
-        count = sum(1 for x in heights if lo <= x <= hi)
-        if count > best_count:
-            best_center, best_count = h, count
-
-    lo = best_center * (1.0 - tolerance)
-    hi = best_center * (1.0 + tolerance)
-    filtered = [d for d in detections if lo <= d["px_h"] <= hi]
-    # Safety net: if tolerance is somehow too tight, keep originals.
-    return filtered if filtered else detections
-
-
-# ---------------------------------------------------------------------------
-# Cross-number overlap removal
-# ---------------------------------------------------------------------------
-
-def _remove_cross_overlaps(detections: list[dict], iou_thresh: float = 0.3) -> list[dict]:
-    """
-    Remove lower-confidence detections whose box significantly overlaps a
-    detection for a *different* number.
-
-    After same-number deduplication, distinct numbers whose bounding boxes
-    overlap are almost certainly false positives (one of them misread).
-    Processing in descending confidence order ensures the more reliable
-    detection is kept.
-    """
-    sorted_dets = sorted(detections, key=lambda d: d["confidence"], reverse=True)
+    """One detection per location: the highest-scoring reading wins, so a
+    coarse-pass misread ("50") loses to a confident fine-pass read ("60")."""
     kept: list[dict] = []
-    for det in sorted_dets:
-        if not any(k["number"] != det["number"] and _iou(det, k) > iou_thresh for k in kept):
-            kept.append(det)
+    for d in sorted(detections, key=lambda d: d["score"], reverse=True):
+        if not any(_overlaps(d, k) for k in kept):
+            kept.append(d)
     return kept
 
 
+def _dominant_height(heights: list[float], tolerance: float) -> float | None:
+    """
+    Centre of the densest height cluster: the height with the most other
+    heights within ±tolerance. All numbers on a sprue share one font size, so
+    this is the label height even when outliers (logos, part details) are
+    numerous. Returns None with fewer than 3 samples.
+    """
+    if len(heights) < 3:
+        return None
+    best, best_count = None, 0
+    for h in heights:
+        count = sum(1 for x in heights if h * (1 - tolerance) <= x <= h * (1 + tolerance))
+        if count > best_count:
+            best, best_count = h, count
+    return best
+
+
+def _filter_by_font_size(detections: list[dict], tolerance: float) -> list[dict]:
+    centre = _dominant_height([d["px_h"] for d in detections], tolerance)
+    if centre is None:
+        return detections
+    lo, hi = centre * (1 - tolerance), centre * (1 + tolerance)
+    return [d for d in detections if lo <= d["px_h"] <= hi]
+
+
 # ---------------------------------------------------------------------------
-# Profile-specific raw detection (before merge + filter)
+# Pipeline
 # ---------------------------------------------------------------------------
 
-def _sweep(prep_fn, values: tuple, invert: bool = True) -> list[dict]:
-    """
-    Run `prep_fn(v)` for every `v` in `values` and feed each result (plus its
-    inverted polarity, unless `invert=False`) through Tesseract, accumulating
-    all detections. Shared by every profile that sweeps a preprocessing
-    parameter (threshold level, block size, kernel size) instead of using a
-    single fixed value.
-    """
-    results: list[dict] = []
-    for v in values:
-        img = prep_fn(v)
-        results += _run_tesseract(img)
-        if invert:
-            results += _run_tesseract(cv2.bitwise_not(img))
-    return results
+def _fine_scale(img: np.ndarray, coarse_numbers: list[dict]) -> float:
+    confident = [d["px_h"] for d in coarse_numbers if d["score"] >= 0.9]
+    label_h = _dominant_height(confident, settings.OCR_FONT_SIZE_TOLERANCE)
+    if label_h is None:
+        label_h = _FALLBACK_LABEL_FRACTION * min(img.shape[:2])
+    return min(max(_TARGET_LABEL_PX / label_h, _MIN_SCALE), _MAX_SCALE)
 
 
-def _detect_clear(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
-    """8 passes — CLAHE + adaptive threshold swept across _CLEAR_BLOCK_SIZES,
-    both polarities each. Small block sizes resolve small, closely-spaced
-    numbers; large block sizes are needed for zoomed-in photos where digits
-    (and their stroke width) are much bigger in pixel terms."""
-    return _sweep(lambda bs: _prep_clahe_thresh(sharp, block_size=bs), _CLEAR_BLOCK_SIZES)
-
-
-def _detect_bw(gray: np.ndarray) -> list[dict]:
-    """14 passes — threshold sweep across _BW_THRESHOLDS, both polarities each.
-
-    Rather than relying on a single Otsu value, we threshold the image at a
-    range of fixed intensities from mid-tone up to near-white.  Each level is
-    like "dialling the exposure" to a different point: lower values isolate
-    dark features against the grey sprue; higher values separate subtle
-    embossed relief (near background brightness) from the sprue surface.
-    Running both polarities at each level ensures text is found whether it
-    appears darker or lighter than the local background at that threshold.
-    The individual results are merged and deduplicated by the caller.
-    """
-    return _sweep(lambda t: _prep_bw_fixed(gray, t), _BW_THRESHOLDS)
-
-
-def _detect_retinex(gray: np.ndarray) -> list[dict]:
-    """4 passes — single-scale Retinex at two sigmas, each in both polarities.
-
-    Retinex illumination normalisation is uniquely effective for same-colour
-    embossed text (sprue numbers) where the only contrast cue is a faint shadow.
-    sigma=30 catches tight local detail; sigma=60 captures broader relief.
-    Running both polarities handles text that is either raised (lighter than
-    surroundings after normalisation) or recessed (darker).
-    """
-    r30 = _prep_retinex(gray, sigma=30)
-    r60 = _prep_retinex(gray, sigma=60)
-
-    def _adapt(img: np.ndarray) -> np.ndarray:
-        return cv2.adaptiveThreshold(
-            img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-        )
-
-    return (
-        _run_tesseract(_adapt(r30))
-        + _run_tesseract(cv2.bitwise_not(_adapt(r30)))
-        + _run_tesseract(_adapt(r60))
-        + _run_tesseract(cv2.bitwise_not(_adapt(r60)))
-    )
-
-
-def _detect_embossed(gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
-    """11 passes — emphasises surface relief features. Top-hat/black-hat
-    kernel size is swept across _TOPHAT_KERNEL_SIZES since the kernel must be
-    at least as large as the digit for the operation to isolate it as a
-    single "bump" — a fixed size only works within a narrow zoom range."""
-    embossed = _prep_emboss(gray)
-    _, emboss_bin = cv2.threshold(embossed, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    results = _run_tesseract(embossed) + _run_tesseract(emboss_bin) + _run_tesseract(_prep_sobel(sharp))
-
-    # Shared across the whole kernel-size sweep below — CLAHE params never
-    # vary, so one instance suffices instead of rebuilding it per pass.
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
-    results += _sweep(lambda ks: _prep_tophat(gray, ks, clahe=clahe), _TOPHAT_KERNEL_SIZES, invert=False)
-    results += _sweep(lambda ks: _prep_blackhat(gray, ks, clahe=clahe), _TOPHAT_KERNEL_SIZES, invert=False)
-    return results
-
-
-def _run_profile(profile: str, gray_raw: np.ndarray, gray: np.ndarray, sharp: np.ndarray) -> list[dict]:
-    """Run a single named profile through merge + font-size filter."""
-    if profile == "raw":
-        raw = _run_tesseract(gray_raw)
-    elif profile == "clear":
-        raw = _detect_clear(gray, sharp)
-    elif profile == "embossed":
-        raw = _detect_embossed(gray, sharp)
-    elif profile == "bw":
-        raw = _detect_bw(gray)
-    elif profile == "retinex":
-        raw = _detect_retinex(gray)
-    else:
+def _analyse(img: np.ndarray, profile: str) -> tuple[list[dict], list[dict], float]:
+    """Returns (accepted, rejected_numbers, fine_scale)."""
+    if profile not in PROFILES:
         raise ValueError(f"Unknown profile: {profile!r}")
-    return _remove_cross_overlaps(_filter_by_font_size(_merge(raw)))
+
+    candidates = _numbers(_detect(img, 1.0))
+    scale = _fine_scale(img, candidates)
+    if scale >= _SKIP_FINE_BELOW:
+        candidates += _numbers(_detect(img, scale))
+
+    merged = _merge(candidates)
+    scored = [d for d in merged if d["score"] >= settings.OCR_MIN_SCORE]
+    accepted = _filter_by_font_size(scored, settings.OCR_FONT_SIZE_TOLERANCE)
+    accepted_ids = {id(d) for d in accepted}
+    rejected = [d for d in merged if id(d) not in accepted_ids]
+    return accepted, rejected, scale
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def _load_and_prep(image_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, int]:
+def _load(image_path: str) -> np.ndarray:
     img = cv2.imread(image_path)
     if img is None:
         raise ValueError(f"Could not load image: {image_path}")
-    h0, w0 = img.shape[:2]
-    if w0 > 2000:
-        img = cv2.resize(img, (2000, int(h0 * 2000 / w0)), interpolation=cv2.INTER_AREA)
+    return img
+
+
+def process_image(image_path: str, profile: str = "auto") -> tuple[list[dict], str]:
+    """
+    Returns (detections, profile). Each detection has `number`, relative box
+    coords `x`/`y`/`width`/`height` (0.0-1.0) and `confidence` (0-100).
+    """
+    img = _load(image_path)
     h, w = img.shape[:2]
-    gray_raw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.bilateralFilter(gray_raw, d=9, sigmaColor=75, sigmaSpace=75)
-    blur = cv2.GaussianBlur(gray, (0, 0), 3)
-    sharp = cv2.addWeighted(gray, 1.5, blur, -0.5, 0)
-    return gray_raw, gray, sharp, w, h
-
-
-def _to_relative(detections: list[dict], w: int, h: int) -> list[dict]:
+    accepted, _, _ = _analyse(img, profile)
     return [
         {
             "number": d["number"],
@@ -395,131 +250,37 @@ def _to_relative(detections: list[dict], w: int, h: int) -> list[dict]:
             "y": d["px_y"] / h,
             "width": d["px_w"] / w,
             "height": d["px_h"] / h,
-            "confidence": d["confidence"],
+            "confidence": round(d["score"] * 100),
         }
-        for d in detections
-    ]
-
-
-def process_image(image_path: str, profile: str = "auto") -> tuple[list[dict], str]:
-    """
-    Returns (detections, effective_profile).
-
-    For 'auto', runs all candidate profiles independently, applies font-size
-    filtering to each, and returns the result with the most detections.
-    Ties are broken by average confidence, then by the order in
-    _AUTO_CANDIDATES (clear > embossed > raw).
-
-    For all other profiles the font-size filter is still applied, so
-    effective_profile == profile.
-    """
-    gray_raw, gray, sharp, w, h = _load_and_prep(image_path)
-
-    if profile == "auto":
-        # Run every candidate profile independently (each gets its own
-        # merge + font-filter pass), then union all results, re-merge
-        # duplicates, and apply a final font-filter to catch any
-        # cross-profile false positives that survived their own filter.
-        union: list[dict] = []
-        for p in _AUTO_CANDIDATES:
-            union.extend(_run_profile(p, gray_raw, gray, sharp))
-        final = _remove_cross_overlaps(_filter_by_font_size(_merge(union)))
-        return _to_relative(final, w, h), "auto"
-
-    dets = _run_profile(profile, gray_raw, gray, sharp)
-    return _to_relative(dets, w, h), profile
+        for d in sorted(accepted, key=lambda d: d["number"])
+    ], profile
 
 
 def get_debug_preview(image_path: str, profile: str = "auto") -> bytes:
     """
-    Return a JPEG grid showing the key preprocessed images for the given profile.
-    No OCR is re-run — purely visual.
+    JPEG of the photo with every numeric candidate drawn: green = accepted,
+    red = rejected (low score, wrong size, or lost to a better overlapping
+    reading). Re-runs OCR, so it takes as long as a reprocess.
     """
-    gray_raw, gray, sharp, _, _ = _load_and_prep(image_path)
+    img = _load(image_path)
+    accepted, rejected, scale = _analyse(img, profile)
 
-    if profile == "raw":
-        panels = [("Raw Grayscale (no preprocessing)", gray_raw)]
-    elif profile == "clear":
-        # One row per swept block size, so the preview matches what
-        # detection actually tries across zoom levels.
-        panels = []
-        for block_size in _CLEAR_BLOCK_SIZES:
-            thresh = _prep_clahe_thresh(sharp, block_size=block_size)
-            panels.append((f"CLAHE + Threshold bs={block_size}", thresh))
-            panels.append((f"bs={block_size} inverted", cv2.bitwise_not(thresh)))
-    elif profile == "embossed":
-        # Top-hat/black-hat shown at the smallest and largest swept kernel
-        # size to illustrate the range detection actually tries.
-        ks_lo, ks_hi = _TOPHAT_KERNEL_SIZES[0], _TOPHAT_KERNEL_SIZES[-1]
-        panels = [
-            ("Emboss (6-dir, abs-max)", _prep_emboss(gray)),
-            ("Sobel Gradient Magnitude", _prep_sobel(sharp)),
-            (f"Top-hat ks={ks_lo}", _prep_tophat(gray, ks_lo)),
-            (f"Top-hat ks={ks_hi}", _prep_tophat(gray, ks_hi)),
-            (f"Black-hat ks={ks_lo}", _prep_blackhat(gray, ks_lo)),
-            (f"Black-hat ks={ks_hi}", _prep_blackhat(gray, ks_hi)),
-        ]
-    elif profile == "bw":
-        # Show 4 evenly-spaced steps from the sweep so the preview grid stays readable
-        sample_thresholds = [_BW_THRESHOLDS[i] for i in (0, 2, 4, 6)]  # 110, 146, 182, 218
-        panels = []
-        for t in sample_thresholds:
-            bw = _prep_bw_fixed(gray, t)
-            panels.append((f"B&W thresh={t}", bw))
-            panels.append((f"B&W thresh={t} inv", cv2.bitwise_not(bw)))
-    elif profile == "retinex":
-        def _adapt(img: np.ndarray) -> np.ndarray:
-            return cv2.adaptiveThreshold(
-                img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-            )
-        r30 = _prep_retinex(gray, sigma=30)
-        r60 = _prep_retinex(gray, sigma=60)
-        panels = [
-            ("Retinex σ=30 (raw)", r30),
-            ("Retinex σ=30 + Adapt Thresh", _adapt(r30)),
-            ("Retinex σ=60 (raw)", r60),
-            ("Retinex σ=60 + Adapt Thresh", _adapt(r60)),
-        ]
-    else:  # auto — show one representative panel per candidate
-        thresh = _prep_clahe_thresh(sharp)
-        r60 = _prep_retinex(gray, sigma=60)
-        panels = [
-            ("Clear: CLAHE + Threshold", thresh),
-            ("Retinex σ=60 + Adapt Thresh",
-             cv2.adaptiveThreshold(r60, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                   cv2.THRESH_BINARY, 11, 2)),
-            ("B&W: Otsu Threshold", cv2.threshold(cv2.GaussianBlur(gray, (5, 5), 0), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]),
-            ("Embossed: Emboss (6-dir)", _prep_emboss(gray)),
-        ]
+    thickness = max(2, img.shape[1] // 800)
+    font_scale = img.shape[1] / 2500
+    for dets, colour in ((rejected, (0, 0, 230)), (accepted, (0, 180, 0))):
+        for d in dets:
+            x, y = int(d["px_x"]), int(d["px_y"])
+            x2, y2 = int(d["px_x"] + d["px_w"]), int(d["px_y"] + d["px_h"])
+            cv2.rectangle(img, (x, y), (x2, y2), colour, thickness)
+            cv2.putText(img, f"{d['number']} {d['score']:.2f}", (x, max(0, y - 2 * thickness)),
+                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, colour, thickness, cv2.LINE_AA)
 
-    return _make_preview_grid(panels)
+    label = f"{profile}: {len(accepted)} accepted, {len(rejected)} rejected, fine-pass upscale {scale:.2f}x"
+    cv2.putText(img, label, (10, int(40 * font_scale) + 10), cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale * 1.2, (200, 0, 200), thickness + 1, cv2.LINE_AA)
 
-
-def _make_preview_grid(panels: list[tuple[str, np.ndarray]]) -> bytes:
-    CELL_H = 480
-    LABEL_H = 26
-
-    cells = []
-    for label, img in panels:
-        h, w = img.shape[:2]
-        cell_w = int(w * CELL_H / h)
-        resized = cv2.resize(img, (cell_w, CELL_H), interpolation=cv2.INTER_AREA)
-        bgr = cv2.cvtColor(resized, cv2.COLOR_GRAY2BGR)
-        bar = np.zeros((LABEL_H, cell_w, 3), dtype=np.uint8)
-        cv2.putText(bar, label, (5, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 220, 255), 1, cv2.LINE_AA)
-        cells.append(np.vstack([bar, bgr]))
-
-    if len(cells) <= 2:
-        grid = np.hstack(cells)
-    else:
-        cw = cells[0].shape[1]
-        rows = []
-        for i in range(0, len(cells), 2):
-            row_imgs = cells[i:i + 2]
-            if len(row_imgs) < 2:
-                row_imgs.append(np.zeros((cells[0].shape[0], cw, 3), dtype=np.uint8))
-            rows.append(np.hstack(row_imgs))
-        grid = np.vstack(rows)
-
-    _, buf = cv2.imencode(".jpg", grid, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    max_w = 2000
+    if img.shape[1] > max_w:
+        img = cv2.resize(img, (max_w, int(img.shape[0] * max_w / img.shape[1])), interpolation=cv2.INTER_AREA)
+    _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
     return bytes(buf)

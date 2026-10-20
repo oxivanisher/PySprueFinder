@@ -1,0 +1,10 @@
+.git
+.idea
+.claude
+.venv
+__pycache__
+*.py[cod]
+.env
+instance
+uploads
+*.db

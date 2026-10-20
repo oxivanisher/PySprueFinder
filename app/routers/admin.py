@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from PIL import Image
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy.orm import Session
 
 from app.auth import require_admin
@@ -108,32 +108,43 @@ async def upload_sprue(
     if not project:
         return RedirectResponse(url="/admin", status_code=302)
 
+    def error_page(message: str):
+        return templates.TemplateResponse(
+            request, "admin/project_edit.html", {"project": project, "error": message},
+        )
+
     # Validate extension
     allowed = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
     ext = os.path.splitext(image.filename or "")[1].lower()
     if ext not in allowed:
-        project = db.query(Project).filter(Project.id == project_id).first()
-        return templates.TemplateResponse(
-            request, "admin/project_edit.html",
-            {"project": project, "error": f"Invalid file type '{ext}'. Allowed: {', '.join(allowed)}"},
-        )
+        return error_page(f"Invalid file type '{ext}'. Allowed: {', '.join(sorted(allowed))}")
 
-    # Save and process image
     contents = await image.read()
-    filename = f"{uuid.uuid4().hex}.jpg"
-    filepath = os.path.join(settings.UPLOAD_DIR, filename)
+    try:
+        pil_img = Image.open(BytesIO(contents))
+        # Phone photos are stored sensor-side-up with an EXIF rotation flag;
+        # bake the rotation in so the stored image (and OCR) is upright.
+        pil_img = ImageOps.exif_transpose(pil_img).convert("RGB")
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        return error_page("Could not read the uploaded image.")
 
-    pil_img = Image.open(BytesIO(contents)).convert("RGB")
     # Downscale if needed
     max_px = settings.MAX_UPLOAD_PX
     w, h = pil_img.size
     if w > max_px or h > max_px:
         scale = min(max_px / w, max_px / h)
         pil_img = pil_img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+    filename = f"{uuid.uuid4().hex}.jpg"
+    filepath = os.path.join(settings.UPLOAD_DIR, filename)
     pil_img.save(filepath, "JPEG", quality=90)
 
     # Run OCR (CPU-bound; offload to a thread so it doesn't block the event loop)
-    detections, effective_profile = await run_in_threadpool(process_image, filepath, profile=profile)
+    try:
+        detections, effective_profile = await run_in_threadpool(process_image, filepath, profile=profile)
+    except Exception:
+        os.remove(filepath)
+        raise
 
     # Save to DB
     sprue = Sprue(

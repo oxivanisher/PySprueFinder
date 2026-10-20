@@ -1,5 +1,6 @@
+import hmac
+
 from fastapi import Request
-from fastapi.responses import RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
@@ -20,4 +21,4 @@ def api_require_admin(request: Request):
 
 
 def check_password(password: str) -> bool:
-    return password == settings.ADMIN_PASSWORD
+    return hmac.compare_digest(password.encode(), settings.ADMIN_PASSWORD.encode())

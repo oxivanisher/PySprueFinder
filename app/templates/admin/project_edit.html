@@ -58,7 +58,8 @@
                 Edit
               </a>
               <button
-                onclick="deleteSprue({{ sprue.id }}, '{{ sprue.letter }}')"
+                data-letter="{{ sprue.letter }}"
+                onclick="deleteSprue({{ sprue.id }}, this.dataset.letter)"
                 class="px-3 py-1 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600">
                 Delete
               </button>
@@ -109,7 +110,8 @@
   <!-- Danger zone -->
   <div class="bg-white rounded-xl shadow p-5 border border-red-100">
     <h2 class="text-sm font-semibold text-red-600 mb-3 uppercase tracking-wide">Danger Zone</h2>
-    <button onclick="deleteProject({{ project.id }}, '{{ project.name | e }}')"
+    <button data-name="{{ project.name }}"
+            onclick="deleteProject({{ project.id }}, this.dataset.name)"
             class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm font-semibold">
       Delete Entire Project
     </button>

@@ -1,7 +1,6 @@
 import os
-import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -22,23 +21,28 @@ async def search(project_id: int, q: str = "", db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    q = q.strip()
+    q = q.strip().upper()
     if not q:
         return []
 
-    match = re.fullmatch(r"([A-Za-z]*)(\d+)", q)
-    if not match:
-        return []
-
-    letter_prefix = match.group(1).upper()
-    number = int(match.group(2))
+    def as_number(text: str) -> int | None:
+        return int(text) if text.isascii() and text.isdigit() else None
 
     sprues = db.query(Sprue).filter(Sprue.project_id == project_id).all()
-    if letter_prefix:
-        sprues = [s for s in sprues if s.letter.upper() == letter_prefix]
+    # Sprue codes may themselves contain digits ("P1"), so "P112" can't be
+    # split with a regex: match every sprue whose code prefixes the query
+    # and leaves a number behind. A bare number searches all sprues.
+    targets: list[tuple[Sprue, int]] = []
+    if (number := as_number(q)) is not None:
+        targets = [(sprue, number) for sprue in sprues]
+    else:
+        for sprue in sprues:
+            code = sprue.letter.upper()
+            if q.startswith(code) and (number := as_number(q[len(code):])) is not None:
+                targets.append((sprue, number))
 
     results = []
-    for sprue in sprues:
+    for sprue, number in targets:
         locations = (
             db.query(NumberLocation)
             .filter(NumberLocation.sprue_id == sprue.id, NumberLocation.number == number)
@@ -71,7 +75,6 @@ async def add_number(
     sprue_id: int,
     payload: NumberLocationCreate,
     db: Session = Depends(get_db),
-    request: Request = None,
     _=Depends(api_require_admin),
 ):
     sprue = db.query(Sprue).filter(Sprue.id == sprue_id).first()
@@ -200,12 +203,11 @@ async def reprocess_sprue(
     if not sprue:
         raise HTTPException(status_code=404, detail="Sprue not found")
 
-    db.query(NumberLocation).filter(NumberLocation.sprue_id == sprue_id).delete()
-    db.commit()
-
+    # OCR first: if it fails, the existing detections stay untouched.
     filepath = os.path.join(settings.UPLOAD_DIR, sprue.image_filename)
     detections, effective_profile = await run_in_threadpool(process_image, filepath, profile=profile)
 
+    db.query(NumberLocation).filter(NumberLocation.sprue_id == sprue_id).delete()
     for det in detections:
         db.add(NumberLocation(
             sprue_id=sprue_id,

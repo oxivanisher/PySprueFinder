@@ -54,7 +54,8 @@
               <div class="flex flex-wrap gap-1">
                 {% for num in entry.numbers %}
                   <button
-                    onclick="quickSearch('{{ entry.letter }}{{ num }}')"
+                    data-q="{{ entry.letter }}{{ num }}"
+                    onclick="quickSearch(this.dataset.q)"
                     class="px-1.5 py-0.5 text-xs font-mono font-semibold rounded bg-slate-100 text-slate-700 hover:bg-amber-400 hover:text-white transition-colors">
                     {{ num }}
                   </button>
