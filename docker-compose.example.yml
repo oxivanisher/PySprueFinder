@@ -1,0 +1,24 @@
+services:
+  pyspruefinder:
+    image: ghcr.io/oxivanisher/pyspruefinder:latest
+    # Fixed name so the watchtower command below can target it.
+    container_name: pyspruefinder
+    # Internal use only (single shared admin password, no TLS). To expose it
+    # on one interface only, bind to that IP, e.g. "192.168.1.10:8000:8000".
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - ./instance:/app/instance
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+
+  # Optional: automatically pull and restart when a new image is published.
+  # Remove this block if you prefer to trigger redeployment via the Portainer
+  # webhook (set PORTAINER_WEBHOOK_URL in your GitHub repository secrets).
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 300 --cleanup pyspruefinder
+    restart: unless-stopped

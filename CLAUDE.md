@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-Full-stack web app for finding Warhammer miniature parts on sprues by photo.
+Full-stack web app for finding Warhammer miniature parts on sprues by photo. Public on GitHub.
+Internal-network tool by design: auth is one shared admin password (session cookie), no accounts,
+no rate limiting; viewing/searching is unauthenticated. Keep README's "Internal use only" note accurate.
 Stack: FastAPI · SQLite/SQLAlchemy · Jinja2 · Tailwind CDN · Vanilla JS · RapidOCR (ONNX Runtime) · OpenCV · Docker
 
 ## Environment
@@ -21,7 +23,7 @@ python run.py
 # Or directly
 .venv/bin/uvicorn app.main:app --reload
 
-# Docker
+# Docker (build from source)
 docker compose up --build
 ```
 
@@ -89,16 +91,16 @@ Key implementation details:
 
 ## Deployment & CI/CD
 
-**GitLab CI** (`.gitlab-ci.yml`) — three stages on every push, release+deploy on `main` only:
-1. `build` — `docker build --build-arg GIT_HASH=$CI_COMMIT_SHORT_SHA` + push as `spruefinder:$CI_COMMIT_REF_NAME`
-2. `release` — retag as `spruefinder:latest` and push
-3. `deploy` — POST to `$PORTAINER_WEBHOOK_URL` (CI env var) to trigger Portainer redeploy
+**GitHub Actions** (`.github/workflows/docker.yml`) — on push to `main` / `v*` tags: multi-arch
+(amd64+arm64) build pushed to `ghcr.io/oxivanisher/pyspruefinder`, then optional Portainer webhook
+(`PORTAINER_WEBHOOK_URL` secret). Passes the full commit SHA as `GIT_HASH`; the footer shows the
+first 7 characters as the version (full hash on hover), so users can check which build they run.
 
-**Registry:** `registry.example.com/example/pyspruefinder/spruefinder`
+**Compose files:**
+- `docker-compose.yml` — builds from source (`docker compose up --build`)
+- `docker-compose.example.yml` — runs the published ghcr image, plus optional Watchtower auto-update
 
-**Production** (`docker-compose.yml`): pulls from registry, bind address controlled by `SERVICE_IP` env var (default `0.0.0.0`), port 8000, volumes at `/srv/spruefinder/`. Env vars use `${VAR:-default}` syntax.
-
-**Local build test** (`docker-compose.build.yml`): builds from source, binds `0.0.0.0:8000`.
+Both read settings from `.env` (see `.env.example`) and persist `./instance` (DB) and `./uploads` (photos).
 
 ## Important Notes
 

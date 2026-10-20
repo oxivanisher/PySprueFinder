@@ -1,26 +1,10 @@
----
-# if pulling is not working, check the registry setting in portainer
-
 services:
-  spruefinder:
-    image: registry.example.com/example/pyspruefinder
-    container_name: spruefinder
-    environment:
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
-      SECRET_KEY: ${SECRET_KEY}
-      DATABASE_URL: ${DATABASE_URL:-sqlite:///./instance/spruefinder.db}
-      UPLOAD_DIR: ${UPLOAD_DIR:-./uploads}
-    volumes:
-      - /srv/spruefinder/uploads/:/app/uploads
-      - /srv/spruefinder/instance/:/app/instance
+  pyspruefinder:
+    build: .
     ports:
-      - "${SERVICE_IP:-0.0.0.0}:8000:8000"
-
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - ./instance:/app/instance
+      - ./uploads:/app/uploads
     restart: unless-stopped
-
-volumes:
-  sqlite_data:
-    driver: local
-
-networks:
-  default:

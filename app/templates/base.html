@@ -42,7 +42,7 @@
   </main>
 
   <footer class="bg-slate-900 text-slate-400 text-center text-xs py-3">
-    PySprueFinder &middot; <span title="Git commit">{{ git_hash }}</span>
+    PySprueFinder &middot; version <span class="font-mono" title="Git commit {{ git_hash }}">{{ git_hash[:7] }}</span>
   </footer>
 
   {% block scripts %}{% endblock %}
