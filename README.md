@@ -8,6 +8,22 @@ sprue once, let OCR find the part numbers moulded into the frame, then search fo
 > no rate limiting and no TLS. Run it on a trusted home or lab network (or behind a VPN), never exposed
 > to the internet. Viewing and searching sprues needs no login at all.
 
+## Screenshots
+
+**Find a part** — type a number (or sprue code + number) and the matching spot is highlighted on the
+sprue photo. The list on the left shows every detected part per sprue.
+
+![Searching for part 42 highlights it on the sprue photo](docs/screenshots/search_number.png)
+
+**Edit a sprue** — detected numbers are drawn on the photo; add, fix or delete boxes, re-run OCR, and
+set the display crop (dashed outline) that search results zoom in on.
+
+![Sprue editor with detected numbers and the display crop](docs/screenshots/edit_sprue.png)
+
+**Projects** — one project per kit, each with any number of sprues.
+
+![Project overview](docs/screenshots/project_overview.png)
+
 ## Features
 
 - Projects (kits) with any number of sprues, each identified by a code such as `A` or `P1`
