@@ -275,20 +275,61 @@
 
   // ── OCR preview ──────────────────────────────────────────────────────────
 
-  async function loadPreview() {
+  // OCR takes 10–30 s; show a live elapsed timer in the panel and over the
+  // image, and lock both OCR buttons so a second click can't queue another run.
+  function startOcrBusy(label) {
+    const status = document.getElementById('ocr-status');
+    const statusText = document.getElementById('ocr-status-text');
+    const spinner = document.getElementById('ocr-status-spinner');
+    const overlay = document.getElementById('ocr-overlay');
+    const overlayText = document.getElementById('ocr-overlay-text');
+    const buttons = [document.getElementById('btn-preview'), document.getElementById('btn-rerun')];
+
+    const started = Date.now();
+    const render = () => {
+      const text = `${label}… ${Math.round((Date.now() - started) / 1000)} s`;
+      statusText.textContent = text;
+      overlayText.textContent = text;
+    };
+    render();
+    const timer = setInterval(render, 1000);
+    status.className = 'flex items-center gap-2 text-xs font-semibold text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2';
+    spinner.classList.remove('hidden');
+    overlay.classList.remove('hidden');
+    buttons.forEach(b => { b.disabled = true; });
+
+    return function stop(errorMessage) {
+      clearInterval(timer);
+      overlay.classList.add('hidden');
+      buttons.forEach(b => { b.disabled = false; });
+      if (errorMessage) {
+        status.className = 'flex items-center gap-2 text-xs font-semibold text-red-700 bg-red-50 rounded-lg px-3 py-2 mb-2';
+        spinner.classList.add('hidden');
+        statusText.textContent = errorMessage;
+      } else {
+        status.classList.add('hidden');
+      }
+    };
+  }
+
+  async function errorDetail(res) {
+    try {
+      const body = await res.json();
+      if (body.detail) return `${res.status}: ${body.detail}`;
+    } catch (e) { /* not JSON */ }
+    return `HTTP ${res.status}`;
+  }
+
+  function loadPreview() {
     const container = document.getElementById('preview-container');
-    const loading = document.getElementById('preview-loading');
     const previewImg = document.getElementById('preview-img');
     container.classList.add('hidden');
-    loading.textContent = 'Running OCR…';
-    loading.classList.remove('hidden');
+    const stop = startOcrBusy('Finding candidates');
     previewImg.onload = () => {
-      loading.classList.add('hidden');
+      stop();
       container.classList.remove('hidden');
     };
-    previewImg.onerror = () => {
-      loading.textContent = 'Failed to load preview.';
-    };
+    previewImg.onerror = () => stop('Failed to load preview.');
     // Cache-bust so a repeated click re-runs OCR
     previewImg.src = `/api/sprues/${SPRUE_ID}/ocr-preview?t=${Date.now()}`;
   }
@@ -296,18 +337,19 @@
 
   async function rerunOcr() {
     if (!confirm('Re-run OCR? This replaces all existing detections, including manual edits.')) return;
-    const btn = document.getElementById('btn-rerun');
-    btn.textContent = 'Running…';
-    btn.disabled = true;
-    const res = await fetch(`/api/sprues/${SPRUE_ID}/reprocess`, { method: 'POST' });
-    if (!res.ok) {
-      alert('OCR failed.');
-      btn.textContent = 'Re-run OCR';
-      btn.disabled = false;
+    const stop = startOcrBusy('Running OCR');
+    let res;
+    try {
+      res = await fetch(`/api/sprues/${SPRUE_ID}/reprocess`, { method: 'POST' });
+    } catch (e) {
+      stop(`OCR failed: ${e.message}`);
       return;
     }
-    const data = await res.json();
-    alert(`OCR complete — ${data.count} number(s) detected.`);
+    if (!res.ok) {
+      stop(`OCR failed (${await errorDetail(res)}).`);
+      return;
+    }
+    // Keep the overlay up through the reload; the new count shows in "Detected Numbers".
     window.location.reload();
   }
   window.rerunOcr = rerunOcr;

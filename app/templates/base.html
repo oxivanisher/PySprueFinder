@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}PySprueFinder{% endblock %}</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="/static/css/app.css">
+  <!-- ?v= busts browser caches on each deploy, so new templates never run against stale JS/CSS -->
+  <link rel="stylesheet" href="/static/css/app.css?v={{ git_hash }}">
   <script>
     tailwind.config = {
       theme: {
