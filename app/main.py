@@ -2,7 +2,7 @@ import logging
 import os
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.middleware.sessions import SessionMiddleware
@@ -46,6 +46,12 @@ app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads"
 app.include_router(public.router)
 app.include_router(admin.router, prefix="/admin")
 app.include_router(api.router, prefix="/api")
+
+
+# Browsers request /favicon.ico directly, regardless of the <link> tags.
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse("app/static/img/favicon.ico", media_type="image/x-icon")
 
 
 @app.exception_handler(RequiresAuthException)

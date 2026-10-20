@@ -7,6 +7,9 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- ?v= busts browser caches on each deploy, so new templates never run against stale JS/CSS -->
   <link rel="stylesheet" href="/static/css/app.css?v={{ git_hash }}">
+  <link rel="icon" href="/static/img/favicon.svg?v={{ git_hash }}" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico?v={{ git_hash }}" sizes="48x48">
+  <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png?v={{ git_hash }}">
   <script>
     tailwind.config = {
       theme: {
