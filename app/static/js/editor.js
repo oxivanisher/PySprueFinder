@@ -16,6 +16,11 @@
   let dragCurrent = null;
   let pendingBox = null;
 
+  // Display crop (relative coords). `crop` is what is saved; `pendingCrop` is a
+  // box drawn in crop mode that has not been saved yet.
+  let crop = INITIAL_CROP;
+  let pendingCrop = null;
+
   // ── Canvas sync ──────────────────────────────────────────────────────────
 
   function syncCanvas() {
@@ -43,12 +48,47 @@
     const sy = canvas.height / rect.height;
     const cx = e.touches ? e.touches[0].clientX : e.clientX;
     const cy = e.touches ? e.touches[0].clientY : e.clientY;
-    return [(cx - rect.left) * sx, (cy - rect.top) * sy];
+    // Clamped, since drags are tracked on the window and may leave the image.
+    const x = Math.min(Math.max((cx - rect.left) * sx, 0), canvas.width);
+    const y = Math.min(Math.max((cy - rect.top) * sy, 0), canvas.height);
+    return [x, y];
+  }
+
+  function dragBoxRel() {
+    const [x1, y1] = dragStart, [x2, y2] = dragCurrent;
+    const [x, y] = toRel(Math.min(x1, x2), Math.min(y1, y2));
+    return { x, y, width: Math.abs(x2 - x1) / canvas.width, height: Math.abs(y2 - y1) / canvas.height };
+  }
+
+  function drawCrop() {
+    const dragging = mode === 'crop' && isDrawing && dragStart && dragCurrent;
+    const box = dragging ? dragBoxRel() : (mode === 'crop' && pendingCrop) || crop;
+    if (!box) return;
+    // Canvas runs at the photo's native resolution; scale strokes to screen pixels.
+    const px = canvas.width / (canvas.getBoundingClientRect().width || canvas.width);
+    const [x, y] = toCanvas(box.x, box.y);
+    const w = box.width * canvas.width;
+    const h = box.height * canvas.height;
+    if (mode === 'crop') {
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+      ctx.beginPath();
+      ctx.rect(0, 0, canvas.width, canvas.height);
+      ctx.rect(x, y, w, h);
+      ctx.fill('evenodd');
+    }
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2 * px;
+    ctx.setLineDash([8 * px, 6 * px]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
   }
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!showOverlay) return;
+    if (!showOverlay) {
+      if (mode === 'crop') drawCrop();
+      return;
+    }
 
     for (const loc of locations) {
       const [x, y] = toCanvas(loc.x, loc.y);
@@ -78,7 +118,9 @@
       ctx.textBaseline = 'alphabetic';
     }
 
-    if (isDrawing && dragStart && dragCurrent) {
+    drawCrop();
+
+    if (mode === 'add' && isDrawing && dragStart && dragCurrent) {
       const [x1, y1] = dragStart, [x2, y2] = dragCurrent;
       ctx.strokeStyle = '#3b82f6';
       ctx.lineWidth = 2;
@@ -154,10 +196,14 @@
     const inactive = 'px-3 py-1.5 text-sm rounded-lg bg-slate-200 text-slate-700 font-semibold hover:bg-slate-300';
     document.getElementById('btn-select').className = m === 'select' ? active : inactive;
     document.getElementById('btn-add').className = m === 'add' ? active : inactive;
+    document.getElementById('btn-crop').className = m === 'crop' ? active : inactive;
 
     document.getElementById('panel-info').classList.toggle('hidden', m !== 'select');
     document.getElementById('panel-edit').classList.add('hidden');
     document.getElementById('panel-add').classList.toggle('hidden', m !== 'add');
+    document.getElementById('panel-crop').classList.toggle('hidden', m !== 'crop');
+    pendingCrop = null;
+    setCropStatus(crop ? 'A crop is saved (dashed outline).' : 'No crop saved; search shows the whole photo.');
     canvas.className = `absolute inset-0 w-full h-full mode-${m}`;
     draw();
     refreshNumberList();
@@ -187,27 +233,31 @@
       }
       draw();
       refreshNumberList();
-    } else if (mode === 'add') {
+    } else if (mode === 'add' || mode === 'crop') {
       isDrawing = true;
       dragStart = dragCurrent = [cx, cy];
     }
   });
 
-  canvas.addEventListener('mousemove', e => {
+  // Tracked on the window so a drag that ends outside the image still completes.
+  window.addEventListener('mousemove', e => {
     if (!isDrawing) return;
     dragCurrent = getEventPos(e);
     draw();
   });
 
-  canvas.addEventListener('mouseup', e => {
-    if (mode !== 'add' || !isDrawing) return;
+  window.addEventListener('mouseup', () => {
+    if (!isDrawing) return;
     isDrawing = false;
-    const [x1, y1] = dragStart, [x2, y2] = dragCurrent;
-    const x = Math.min(x1, x2), y = Math.min(y1, y2);
-    const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
-    if (w < 5 || h < 5) { pendingBox = null; draw(); return; }
-    const [rx, ry] = toRel(x, y);
-    pendingBox = { x: rx, y: ry, width: w / canvas.width, height: h / canvas.height };
+    const box = dragBoxRel();
+    if (box.width * canvas.width < 5 || box.height * canvas.height < 5) { pendingBox = null; draw(); return; }
+    if (mode === 'crop') {
+      pendingCrop = box;
+      setCropStatus('Not saved yet.');
+      draw();
+      return;
+    }
+    pendingBox = box;
     document.getElementById('panel-add').classList.remove('hidden');
     document.getElementById('add-number').focus();
     draw();
@@ -272,6 +322,63 @@
     refreshNumberList();
   }
   window.saveNewBox = saveNewBox;
+
+  // ── Crop ─────────────────────────────────────────────────────────────────
+
+  function setCropStatus(text, isError = false) {
+    const el = document.getElementById('crop-status');
+    el.textContent = text;
+    el.className = `text-xs mt-2 ${isError ? 'text-red-600 font-semibold' : 'text-slate-500'}`;
+  }
+
+  async function patchCrop(box) {
+    const res = await fetch(`/api/sprues/${SPRUE_ID}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ crop: box }),
+    });
+    if (!res.ok) { setCropStatus(`Failed to save crop (HTTP ${res.status}).`, true); return false; }
+    return true;
+  }
+
+  async function saveCrop() {
+    if (!pendingCrop) { setCropStatus('Drag a box on the image first.', true); return; }
+    const round = v => Math.round(v * 10000) / 10000;
+    const box = {
+      x: round(pendingCrop.x), y: round(pendingCrop.y),
+      width: round(pendingCrop.width), height: round(pendingCrop.height),
+    };
+    if (!await patchCrop(box)) return;
+    crop = box;
+    pendingCrop = null;
+    setCropStatus('Crop saved.');
+    draw();
+  }
+  window.saveCrop = saveCrop;
+
+  async function removeCrop() {
+    if (!await patchCrop(null)) return;
+    crop = null;
+    pendingCrop = null;
+    setCropStatus('Crop removed; search shows the whole photo.');
+    draw();
+  }
+  window.removeCrop = removeCrop;
+
+  // Suggest a crop: the bounding box of all detected numbers plus a margin, since
+  // the labels sit on the frame and the sprue edge is just outside them.
+  function fitCropToNumbers() {
+    if (!locations.length) { setCropStatus('No numbers detected to fit to.', true); return; }
+    const margin = 0.03;
+    const x1 = Math.max(0, Math.min(...locations.map(l => l.x)) - margin);
+    const y1 = Math.max(0, Math.min(...locations.map(l => l.y)) - margin);
+    const x2 = Math.min(1, Math.max(...locations.map(l => l.x + l.width)) + margin);
+    const y2 = Math.min(1, Math.max(...locations.map(l => l.y + l.height)) + margin);
+    pendingCrop = { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+    setCropStatus('Suggested from the detected numbers. Not saved yet.');
+    draw();
+  }
+  window.fitCropToNumbers = fitCropToNumbers;
 
   // ── OCR preview ──────────────────────────────────────────────────────────
 

@@ -10,7 +10,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import NumberLocation, Project, Sprue
 from app.ocr import PROFILES, get_debug_preview, process_image
-from app.schemas import NumberLocationCreate, NumberLocationOut, NumberLocationUpdate, ProjectUpdate, SearchResult, SprueUpdate
+from app.schemas import CropBox, NumberLocationCreate, NumberLocationOut, NumberLocationUpdate, ProjectUpdate, SearchResult, SprueUpdate
 
 router = APIRouter()
 
@@ -55,6 +55,7 @@ async def search(project_id: int, q: str = "", db: Session = Depends(get_db)):
                     sprue_letter=sprue.letter,
                     sprue_name=sprue.name,
                     image_filename=sprue.image_filename,
+                    crop=CropBox.from_sprue(sprue),
                     locations=[NumberLocationOut.model_validate(loc) for loc in locations],
                 )
             )
@@ -132,6 +133,12 @@ async def update_sprue(
         sprue.letter = payload.letter.strip().upper()
     if payload.name is not None:
         sprue.name = payload.name.strip() or None
+    if "crop" in payload.model_fields_set:
+        crop = payload.crop
+        sprue.crop_x = crop.x if crop else None
+        sprue.crop_y = crop.y if crop else None
+        sprue.crop_w = crop.width if crop else None
+        sprue.crop_h = crop.height if crop else None
     db.commit()
     return {"ok": True}
 

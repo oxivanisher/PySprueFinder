@@ -15,6 +15,7 @@ sprue once, let OCR find the part numbers moulded into the frame, then search fo
 - Search by sprue code + part number (`A12`, `P197`) or by number alone across all sprues
 - Matches highlighted directly on the sprue photo; browse all detected parts per sprue
 - Admin editor to add, fix or delete detections, plus an OCR candidate view to see what was read
+- Optional display crop per sprue, so search results zoom in on the sprue (the photo stays unchanged)
 - SQLite storage, no external services; OCR models are bundled, so it works fully offline
 
 ## Quick start

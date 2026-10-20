@@ -27,6 +27,10 @@ Base.metadata.create_all(bind=engine)
 with engine.connect() as _conn:
     for _stmt in [
         "ALTER TABLE sprues ADD COLUMN ocr_profile VARCHAR(50)",
+        "ALTER TABLE sprues ADD COLUMN crop_x FLOAT",
+        "ALTER TABLE sprues ADD COLUMN crop_y FLOAT",
+        "ALTER TABLE sprues ADD COLUMN crop_w FLOAT",
+        "ALTER TABLE sprues ADD COLUMN crop_h FLOAT",
     ]:
         try:
             _conn.execute(text(_stmt))

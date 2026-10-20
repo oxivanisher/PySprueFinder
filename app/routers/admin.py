@@ -14,7 +14,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import NumberLocation, Project, Sprue
 from app.ocr import process_image
-from app.schemas import NumberLocationOut
+from app.schemas import CropBox, NumberLocationOut
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -190,5 +190,10 @@ async def edit_sprue(
     ]
     return templates.TemplateResponse(
         request, "admin/sprue_edit.html",
-        {"sprue": sprue, "locations_json": locations_json, "project": sprue.project},
+        {
+            "sprue": sprue,
+            "locations_json": locations_json,
+            "crop": crop.model_dump() if (crop := CropBox.from_sprue(sprue)) else None,
+            "project": sprue.project,
+        },
     )

@@ -27,6 +27,11 @@ class Sprue(Base):
     name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     image_filename: Mapped[str] = mapped_column(String(200), nullable=False)
     ocr_profile: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Display crop as fractions (0.0-1.0) of the photo; the stored image is never modified.
+    crop_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    crop_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    crop_w: Mapped[float | None] = mapped_column(Float, nullable=True)
+    crop_h: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     project: Mapped["Project"] = relationship("Project", back_populates="sprues")

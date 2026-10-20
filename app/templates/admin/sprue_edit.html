@@ -30,6 +30,10 @@
               class="px-3 py-1.5 text-sm rounded-lg bg-slate-200 text-slate-700 font-semibold hover:bg-slate-300">
         Add Box
       </button>
+      <button id="btn-crop" onclick="setMode('crop')"
+              class="px-3 py-1.5 text-sm rounded-lg bg-slate-200 text-slate-700 font-semibold hover:bg-slate-300">
+        Crop
+      </button>
       <button id="btn-toggle-overlay" onclick="toggleOverlay()"
               class="px-3 py-1.5 text-sm rounded-lg bg-slate-200 text-slate-700 font-semibold hover:bg-slate-300">
         Hide Numbers
@@ -108,6 +112,30 @@
       </button>
     </div>
 
+    <!-- Crop panel (crop mode) -->
+    <div id="panel-crop" class="hidden bg-white rounded-xl shadow p-4 mb-3 flex-shrink-0">
+      <h3 class="font-semibold text-slate-800 mb-2">Display Crop</h3>
+      <p class="text-xs text-slate-500 mb-3">
+        Drag a box around the sprue. Search results then show only this area, using the full width.
+        The photo itself is not changed, so you can redo or remove the crop at any time.
+      </p>
+      <div class="flex gap-2 mb-2">
+        <button onclick="saveCrop()"
+                class="flex-1 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-semibold">
+          Save Crop
+        </button>
+        <button onclick="fitCropToNumbers()"
+                class="flex-1 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 text-sm font-semibold">
+          Fit to Numbers
+        </button>
+      </div>
+      <button onclick="removeCrop()"
+              class="w-full py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 text-sm">
+        Remove Crop
+      </button>
+      <p id="crop-status" class="text-xs mt-2 text-slate-500"></p>
+    </div>
+
     <!-- Scrollable lower section: detected numbers + OCR -->
     <div class="flex-1 overflow-y-auto min-h-0 space-y-3">
 
@@ -183,6 +211,7 @@
   const SPRUE_ID = {{ sprue.id }};
   const PROJECT_ID = {{ sprue.project_id }};
   const INITIAL_LOCATIONS = {{ locations_json | tojson }};
+  const INITIAL_CROP = {{ crop | tojson }};
   const INITIAL_PROJECT_NAME = {{ project.name | tojson }};
   const INITIAL_SPRUE_LETTER = {{ sprue.letter | tojson }};
   const INITIAL_SPRUE_NAME = {{ (sprue.name or '') | tojson }};

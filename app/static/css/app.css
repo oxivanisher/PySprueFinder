@@ -20,7 +20,8 @@
 }
 
 /* Canvas cursor modes */
-#overlay-canvas.mode-add {
+#overlay-canvas.mode-add,
+#overlay-canvas.mode-crop {
   cursor: crosshair;
 }
 

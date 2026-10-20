@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 class NumberLocationBase(BaseModel):
@@ -32,9 +32,33 @@ class NumberLocationOut(NumberLocationBase):
     model_config = {"from_attributes": True}
 
 
+class CropBox(BaseModel):
+    """Display crop as fractions of the photo (0.0-1.0)."""
+
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0.02, le=1)
+    height: float = Field(gt=0.02, le=1)
+
+    @model_validator(mode="after")
+    def _inside_image(self):
+        # Small tolerance for float rounding when the box is dragged to the very edge.
+        if self.x + self.width > 1.001 or self.y + self.height > 1.001:
+            raise ValueError("crop box extends past the image")
+        return self
+
+    @classmethod
+    def from_sprue(cls, sprue) -> "CropBox | None":
+        if sprue.crop_w is None:
+            return None
+        return cls(x=sprue.crop_x, y=sprue.crop_y, width=sprue.crop_w, height=sprue.crop_h)
+
+
 class SprueUpdate(BaseModel):
     letter: str | None = None
     name: str | None = None
+    # Send null to remove the crop; omit the field to leave it unchanged.
+    crop: CropBox | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -74,4 +98,5 @@ class SearchResult(BaseModel):
     sprue_letter: str
     sprue_name: str | None
     image_filename: str
+    crop: CropBox | None = None
     locations: list[NumberLocationOut]

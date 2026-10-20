@@ -106,3 +106,7 @@ Both read settings from `.env` (see `.env.example`) and persist `./instance` (DB
 
 - `sprue_edit.html` receives `locations_json` (list of dicts) from the admin router — NOT raw SQLAlchemy objects
 - `tojson` Jinja2 filter requires dicts/lists; serialize SQLAlchemy objects first via `NumberLocationOut.model_validate`
+- Display crop: `sprues.crop_x/y/w/h` (relative 0–1, all NULL = no crop) — display only, the stored photo
+  and OCR always use the full image. Set via `PATCH /api/sprues/{id}` `{"crop": {...}}` (`null` clears,
+  omitting leaves it). `search.js` renders the crop by scaling/offsetting the full image inside an
+  `overflow:hidden` wrapper and maps highlight boxes into crop coordinates

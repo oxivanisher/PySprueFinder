@@ -77,18 +77,41 @@
       img.className = 'rounded';
       wrapper.appendChild(img);
 
+      // With a display crop, the wrapper becomes a window onto the crop area:
+      // the full photo is scaled up and shifted so the crop fills the width.
+      const crop = result.crop || { x: 0, y: 0, width: 1, height: 1 };
+      if (result.crop) {
+        wrapper.style.overflow = 'hidden';
+        wrapper.className = 'rounded';
+        img.className = '';
+        img.style.position = 'absolute';
+        img.style.maxWidth = 'none';
+        img.style.width = `${100 / crop.width}%`;
+        img.style.height = `${100 / crop.height}%`;
+        img.style.left = `${-crop.x / crop.width * 100}%`;
+        img.style.top = `${-crop.y / crop.height * 100}%`;
+        const setAspect = () => {
+          wrapper.style.aspectRatio = `${crop.width * img.naturalWidth} / ${crop.height * img.naturalHeight}`;
+        };
+        if (img.complete && img.naturalWidth) setAspect();
+        else img.addEventListener('load', setAspect);
+      }
+
       for (const loc of result.locations) {
         const box = document.createElement('div');
         box.className = 'highlight-box';
-        box.style.left = `${loc.x * 100}%`;
-        box.style.top = `${loc.y * 100}%`;
-        box.style.width = `${loc.width * 100}%`;
-        box.style.height = `${loc.height * 100}%`;
-        // Label
+        const top = (loc.y - crop.y) / crop.height;
+        box.style.left = `${(loc.x - crop.x) / crop.width * 100}%`;
+        box.style.top = `${top * 100}%`;
+        box.style.width = `${loc.width / crop.width * 100}%`;
+        box.style.height = `${loc.height / crop.height * 100}%`;
+        // Label above the box, or below it when the box is at the top edge
+        // (a cropped wrapper clips anything outside it).
+        const labelPos = result.crop && top < 0.06 ? 'top: 100%; margin-top: 2px;' : 'top: -20px;';
         const label = document.createElement('span');
         label.style.cssText = `
           position: absolute;
-          top: -20px;
+          ${labelPos}
           left: 0;
           background: #ef4444;
           color: white;
