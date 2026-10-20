@@ -26,8 +26,9 @@
 
   <nav class="bg-slate-900 text-white shadow-lg">
     <div class="max-w-screen-2xl mx-auto px-4 py-3 flex items-center justify-between">
-      <a href="/" class="text-xl font-bold text-amber-400 hover:text-amber-300">
-        &#9632; PySprueFinder
+      <a href="/" class="flex items-center gap-2 text-xl font-bold text-amber-400 hover:text-amber-300">
+        <img src="/static/img/favicon.svg?v={{ git_hash }}" alt="" class="w-8 h-8">
+        PySprueFinder
       </a>
       <div class="flex items-center gap-4 text-sm">
         {% if request.session.get('is_admin') %}
