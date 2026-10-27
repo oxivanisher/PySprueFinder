@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Full-stack web app for finding Warhammer miniature parts on sprues by photo. Public on GitHub.
 Internal-network tool by design: auth is one shared admin password (session cookie), no accounts,
 no rate limiting; viewing/searching is unauthenticated. Keep README's "Internal use only" note accurate.
-Stack: FastAPI · SQLite/SQLAlchemy · Jinja2 · Tailwind CDN · Vanilla JS · RapidOCR (ONNX Runtime) · OpenCV · Docker
+Stack: FastAPI · SQLite/SQLAlchemy · Jinja2 · Tailwind v3 (built at image build) · Vanilla JS · RapidOCR (ONNX Runtime) · OpenCV · Docker
 
 ## Environment
 
@@ -25,7 +25,16 @@ python run.py
 
 # Docker (build from source)
 docker compose up --build
+
+# Tailwind CSS (needed for local dev; the Docker build generates it itself)
+./tailwindcss -c tailwind/tailwind.config.js -i tailwind/input.css -o app/static/css/tailwind.css --watch
 ```
+
+Tailwind v3 is compiled by the standalone CLI (no Node.js) — no CDN, the app needs no internet.
+The `tailwindcss` binary and `app/static/css/tailwind.css` are gitignored; README has the download
+command. The version is pinned in `Dockerfile` (`TAILWIND_VERSION`) and README — keep them in sync.
+Only class names written out in full in `app/templates/` or `app/static/js/` are generated: never
+build class names by concatenation (`'bg-' + colour`) or inside Jinja expressions.
 
 ## Setup notes
 
@@ -54,8 +63,9 @@ app/
     public.py      — Public web routes
     admin.py       — Admin web routes (/admin/*)
     api.py         — JSON API (/api/*)
-  static/          — CSS + JS
+  static/          — CSS + JS (css/tailwind.css is generated, gitignored)
   templates/       — Jinja2 HTML
+tailwind/          — Tailwind config + input CSS
 instance/          — SQLite DB (gitignored)
 uploads/           — Uploaded images (gitignored)
 ```

@@ -4,23 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}PySprueFinder{% endblock %}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
   <!-- ?v= busts browser caches on each deploy, so new templates never run against stale JS/CSS -->
+  <!-- tailwind.css is generated at image build time (see tailwind/ and the Dockerfile) -->
+  <link rel="stylesheet" href="/static/css/tailwind.css?v={{ git_hash }}">
   <link rel="stylesheet" href="/static/css/app.css?v={{ git_hash }}">
   <link rel="icon" href="/static/img/favicon.svg?v={{ git_hash }}" type="image/svg+xml">
   <link rel="icon" href="/favicon.ico?v={{ git_hash }}" sizes="48x48">
   <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png?v={{ git_hash }}">
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            amber: { 500: '#f59e0b' },
-          }
-        }
-      }
-    }
-  </script>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col">
 

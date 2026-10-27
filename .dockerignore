@@ -9,3 +9,5 @@ instance
 uploads
 *.db
 docs
+app/static/css/tailwind.css
+tailwindcss
