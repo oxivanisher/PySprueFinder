@@ -75,7 +75,7 @@
   <!-- Upload new sprue -->
   <div class="bg-white rounded-xl shadow p-5 mb-6">
     <h2 class="text-sm font-semibold text-slate-600 mb-4 uppercase tracking-wide">Upload New Sprue</h2>
-    <form method="post"
+    <form method="post" id="upload-form"
           action="/admin/projects/{{ project.id }}/sprues"
           enctype="multipart/form-data"
           class="space-y-3">
@@ -100,10 +100,14 @@
                class="w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-amber-500 file:text-white file:font-semibold hover:file:bg-amber-600"
                required>
       </div>
-      <button type="submit"
-              class="w-full py-2 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600">
+      <button type="submit" id="btn-upload"
+              class="w-full py-2 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 disabled:cursor-wait">
         Upload &amp; Run OCR
       </button>
+      <div id="upload-status" class="hidden flex items-center gap-2 text-sm font-semibold text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+        <span id="upload-status-spinner" class="inline-block w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></span>
+        <span id="upload-status-text"></span>
+      </div>
     </form>
   </div>
 
@@ -134,5 +138,63 @@ async function deleteProject(id, name) {
   if (res.ok) window.location.href = '/admin';
   else alert('Failed to delete project.');
 }
+
+// Upload + OCR takes 10–30 s with no feedback from a plain form post, so send it
+// via XHR: show upload progress, then an elapsed timer while the server runs OCR.
+document.getElementById('upload-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const button = document.getElementById('btn-upload');
+  const status = document.getElementById('upload-status');
+  const statusText = document.getElementById('upload-status-text');
+  const spinner = document.getElementById('upload-status-spinner');
+
+  let timer = null;
+  const fail = (message) => {
+    clearInterval(timer);
+    button.disabled = false;
+    status.className = 'flex items-center gap-2 text-sm font-semibold text-red-700 bg-red-50 rounded-lg px-3 py-2';
+    spinner.classList.add('hidden');
+    statusText.textContent = message;
+  };
+
+  button.disabled = true;
+  status.className = 'flex items-center gap-2 text-sm font-semibold text-amber-700 bg-amber-50 rounded-lg px-3 py-2';
+  spinner.classList.remove('hidden');
+  statusText.textContent = 'Uploading…';
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', form.action);
+  xhr.upload.onprogress = (ev) => {
+    if (ev.lengthComputable) {
+      statusText.textContent = `Uploading… ${Math.round((ev.loaded / ev.total) * 100)} %`;
+    }
+  };
+  xhr.upload.onload = () => {
+    const started = Date.now();
+    const render = () => {
+      statusText.textContent = `Upload complete. Running OCR… ${Math.round((Date.now() - started) / 1000)} s`;
+    };
+    render();
+    timer = setInterval(render, 1000);
+  };
+  xhr.onload = () => {
+    if (xhr.status >= 400) {
+      fail(`Upload failed (HTTP ${xhr.status}).`);
+      return;
+    }
+    // Success redirects to the sprue editor; validation errors re-render this page.
+    if (xhr.responseURL && new URL(xhr.responseURL).pathname !== new URL(form.action).pathname) {
+      window.location.href = xhr.responseURL;
+    } else {
+      clearInterval(timer);
+      document.open();
+      document.write(xhr.responseText);
+      document.close();
+    }
+  };
+  xhr.onerror = () => fail('Upload failed (network error).');
+  xhr.send(new FormData(form));
+});
 </script>
 {% endblock %}
