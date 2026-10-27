@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth import RequiresAuthException
+from app.auth import RequiresAuthException, log_password_config
 from app.config import settings
 from app.database import Base, engine
 from app.routers import admin, api, public
@@ -15,6 +15,7 @@ from app.routers import admin, api, public
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.info("Starting PySprueFinder — git %s", os.getenv("GIT_HASH", "unknown"))
+log_password_config()
 
 # Ensure directories exist
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

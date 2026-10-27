@@ -59,7 +59,7 @@ Set via environment variables (or `.env`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ADMIN_PASSWORD` | `changeme` | Shared admin password — change it |
+| `ADMIN_PASSWORD` | `changeme` | Shared admin password — change it. In `.env`, Compose expands `$`: write `$$` or single-quote the value. The container log shows its length at startup and every login attempt |
 | `SECRET_KEY` | random per start | Signs the session cookie; set it, or admins are logged out on every restart |
 | `DATABASE_URL` | `sqlite:///./instance/spruefinder.db` | SQLAlchemy database URL |
 | `UPLOAD_DIR` | `./uploads` | Where sprue photos are stored |
