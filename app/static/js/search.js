@@ -51,16 +51,16 @@
 
     for (const result of results) {
       const card = document.createElement('div');
-      card.className = 'bg-white rounded-xl shadow p-4';
+      card.className = 'bg-white dark:bg-slate-800 rounded-xl shadow p-4';
 
       const header = document.createElement('div');
       header.className = 'flex items-center justify-between mb-3';
       header.innerHTML = `
-        <h3 class="font-semibold text-slate-800 text-lg">
+        <h3 class="font-semibold text-slate-800 dark:text-slate-100 text-lg">
           Sprue ${escHtml(result.sprue_letter)}
-          ${result.sprue_name ? `<span class="font-normal text-slate-500 text-base">— ${escHtml(result.sprue_name)}</span>` : ''}
+          ${result.sprue_name ? `<span class="font-normal text-slate-500 dark:text-slate-400 text-base">— ${escHtml(result.sprue_name)}</span>` : ''}
         </h3>
-        <span class="text-sm text-slate-500">${result.locations.length} location(s)</span>
+        <span class="text-sm text-slate-500 dark:text-slate-400">${result.locations.length} location(s)</span>
       `;
       card.appendChild(header);
 

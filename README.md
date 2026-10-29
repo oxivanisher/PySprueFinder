@@ -33,6 +33,7 @@ set the display crop (dashed outline) that search results zoom in on.
 - Admin editor to add, fix or delete detections, plus an OCR candidate view to see what was read
 - Optional display crop per sprue, so search results zoom in on the sprue (the photo stays unchanged)
 - SQLite storage, no external services; OCR models are bundled, so it works fully offline
+- Light and dark theme: follows the OS setting, or pick one with the toggle in the top bar
 
 ## Quick start
 

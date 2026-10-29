@@ -4,7 +4,7 @@
 {% block content %}
 <div class="max-w-4xl mx-auto">
   <div class="flex items-center justify-between mb-6">
-    <h1 class="text-3xl font-bold text-slate-800">Admin Dashboard</h1>
+    <h1 class="text-3xl font-bold text-slate-800 dark:text-slate-100">Admin Dashboard</h1>
     <a href="/admin/projects/new"
        class="px-4 py-2 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600">
       + New Project
@@ -14,14 +14,14 @@
   {% if projects %}
     <div class="grid gap-4">
       {% for project in projects %}
-        <div class="bg-white rounded-xl shadow p-5 border border-slate-200 flex items-center justify-between">
+        <div class="bg-white dark:bg-slate-800 rounded-xl shadow p-5 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
           <div>
-            <h2 class="text-lg font-semibold text-slate-800">{{ project.name }}</h2>
-            <p class="text-sm text-slate-500">{{ project.sprues | length }} sprue(s) · Created {{ project.created_at.strftime('%Y-%m-%d') }}</p>
+            <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">{{ project.name }}</h2>
+            <p class="text-sm text-slate-500 dark:text-slate-400">{{ project.sprues | length }} sprue(s) · Created {{ project.created_at.strftime('%Y-%m-%d') }}</p>
           </div>
           <div class="flex gap-2">
             <a href="/projects/{{ project.id }}"
-               class="px-3 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">
+               class="px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600">
               View
             </a>
             <a href="/admin/projects/{{ project.id }}"
@@ -39,7 +39,7 @@
       {% endfor %}
     </div>
   {% else %}
-    <div class="bg-white rounded-xl shadow p-8 text-center text-slate-500">
+    <div class="bg-white dark:bg-slate-800 rounded-xl shadow p-8 text-center text-slate-500 dark:text-slate-400">
       <p>No projects yet. Create your first project!</p>
     </div>
   {% endif %}

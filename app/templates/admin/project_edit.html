@@ -3,24 +3,24 @@
 
 {% block content %}
 <div class="max-w-4xl mx-auto">
-  <a href="/admin" class="text-sm text-slate-500 hover:text-amber-500">&larr; Dashboard</a>
-  <h1 class="text-2xl font-bold text-slate-800 mt-2 mb-6">{{ project.name }}</h1>
+  <a href="/admin" class="text-sm text-slate-500 dark:text-slate-400 hover:text-amber-500">&larr; Dashboard</a>
+  <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100 mt-2 mb-6">{{ project.name }}</h1>
 
   {% if error %}
-    <div class="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+    <div class="mb-4 p-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg text-sm">
       {{ error }}
     </div>
   {% endif %}
 
   <!-- Rename -->
-  <div class="bg-white rounded-xl shadow p-5 mb-6">
-    <h2 class="text-sm font-semibold text-slate-600 mb-3 uppercase tracking-wide">Rename Project</h2>
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow p-5 mb-6">
+    <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-3 uppercase tracking-wide">Rename Project</h2>
     <form method="post" action="/admin/projects/{{ project.id }}/name" class="flex gap-2">
       <input
         type="text"
         name="name"
         value="{{ project.name }}"
-        class="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
+        class="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
         required
       >
       <button type="submit"
@@ -31,24 +31,24 @@
   </div>
 
   <!-- Sprues list -->
-  <div class="bg-white rounded-xl shadow p-5 mb-6">
-    <h2 class="text-sm font-semibold text-slate-600 mb-4 uppercase tracking-wide">
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow p-5 mb-6">
+    <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-4 uppercase tracking-wide">
       Sprues ({{ project.sprues | length }})
     </h2>
 
     {% if project.sprues %}
       <div class="grid gap-3 mb-4">
         {% for sprue in project.sprues %}
-          <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+          <div class="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
             <img src="/uploads/{{ sprue.image_filename }}"
-                 class="w-16 h-12 object-cover rounded border"
+                 class="w-16 h-12 object-cover rounded border dark:border-slate-700"
                  alt="Sprue {{ sprue.letter }}">
             <div class="flex-1 min-w-0">
-              <div class="font-semibold text-slate-800">
+              <div class="font-semibold text-slate-800 dark:text-slate-100">
                 Sprue {{ sprue.letter }}
-                {% if sprue.name %}<span class="font-normal text-slate-500">— {{ sprue.name }}</span>{% endif %}
+                {% if sprue.name %}<span class="font-normal text-slate-500 dark:text-slate-400">— {{ sprue.name }}</span>{% endif %}
               </div>
-              <div class="text-xs text-slate-500">
+              <div class="text-xs text-slate-500 dark:text-slate-400">
                 {{ sprue.number_locations | length }} detected number(s)
               </div>
             </div>
@@ -68,43 +68,43 @@
         {% endfor %}
       </div>
     {% else %}
-      <p class="text-slate-500 text-sm mb-4">No sprues yet.</p>
+      <p class="text-slate-500 dark:text-slate-400 text-sm mb-4">No sprues yet.</p>
     {% endif %}
   </div>
 
   <!-- Upload new sprue -->
-  <div class="bg-white rounded-xl shadow p-5 mb-6">
-    <h2 class="text-sm font-semibold text-slate-600 mb-4 uppercase tracking-wide">Upload New Sprue</h2>
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow p-5 mb-6">
+    <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-4 uppercase tracking-wide">Upload New Sprue</h2>
     <form method="post" id="upload-form"
           action="/admin/projects/{{ project.id }}/sprues"
           enctype="multipart/form-data"
           class="space-y-3">
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1">Sprue Letter *</label>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Sprue Letter *</label>
           <input type="text" name="letter" maxlength="5"
                  placeholder="A"
-                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 uppercase"
+                 class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 uppercase"
                  required>
         </div>
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1">Name (optional)</label>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Name (optional)</label>
           <input type="text" name="name" maxlength="200"
                  placeholder="Infantry Bodies"
-                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400">
+                 class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400">
         </div>
       </div>
       <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Image *</label>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Image *</label>
         <input type="file" name="image" accept="image/*"
-               class="w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-amber-500 file:text-white file:font-semibold hover:file:bg-amber-600"
+               class="w-full text-sm text-slate-500 dark:text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-amber-500 file:text-white file:font-semibold hover:file:bg-amber-600"
                required>
       </div>
       <button type="submit" id="btn-upload"
               class="w-full py-2 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 disabled:cursor-wait">
         Upload &amp; Run OCR
       </button>
-      <div id="upload-status" class="hidden flex items-center gap-2 text-sm font-semibold text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+      <div id="upload-status" class="hidden flex items-center gap-2 text-sm font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 rounded-lg px-3 py-2">
         <span id="upload-status-spinner" class="inline-block w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></span>
         <span id="upload-status-text"></span>
       </div>
@@ -112,8 +112,8 @@
   </div>
 
   <!-- Danger zone -->
-  <div class="bg-white rounded-xl shadow p-5 border border-red-100">
-    <h2 class="text-sm font-semibold text-red-600 mb-3 uppercase tracking-wide">Danger Zone</h2>
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow p-5 border border-red-100 dark:border-red-900">
+    <h2 class="text-sm font-semibold text-red-600 dark:text-red-400 mb-3 uppercase tracking-wide">Danger Zone</h2>
     <button data-name="{{ project.name }}"
             onclick="deleteProject({{ project.id }}, this.dataset.name)"
             class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm font-semibold">
@@ -153,13 +153,13 @@ document.getElementById('upload-form').addEventListener('submit', (e) => {
   const fail = (message) => {
     clearInterval(timer);
     button.disabled = false;
-    status.className = 'flex items-center gap-2 text-sm font-semibold text-red-700 bg-red-50 rounded-lg px-3 py-2';
+    status.className = 'flex items-center gap-2 text-sm font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/50 rounded-lg px-3 py-2';
     spinner.classList.add('hidden');
     statusText.textContent = message;
   };
 
   button.disabled = true;
-  status.className = 'flex items-center gap-2 text-sm font-semibold text-amber-700 bg-amber-50 rounded-lg px-3 py-2';
+  status.className = 'flex items-center gap-2 text-sm font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 rounded-lg px-3 py-2';
   spinner.classList.remove('hidden');
   statusText.textContent = 'Uploading…';
 

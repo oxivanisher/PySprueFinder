@@ -157,7 +157,7 @@
         btn.dataset.num = num;
         btn.className = num === (locations.find(l => l.id === selectedId) || {}).number
           ? 'px-2 py-0.5 text-xs font-mono font-semibold rounded bg-amber-400 text-white'
-          : 'px-2 py-0.5 text-xs font-mono font-semibold rounded bg-green-100 text-green-800 hover:bg-amber-400 hover:text-white transition-colors';
+          : 'px-2 py-0.5 text-xs font-mono font-semibold rounded bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200 hover:bg-amber-400 hover:text-white transition-colors';
         btn.addEventListener('click', () => selectByNumber(num));
         container.appendChild(btn);
       }
@@ -193,7 +193,7 @@
     dragCurrent = null;
 
     const active = 'px-3 py-1.5 text-sm rounded-lg bg-amber-500 text-white font-semibold';
-    const inactive = 'px-3 py-1.5 text-sm rounded-lg bg-slate-200 text-slate-700 font-semibold hover:bg-slate-300';
+    const inactive = 'px-3 py-1.5 text-sm rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold hover:bg-slate-300 dark:hover:bg-slate-600';
     document.getElementById('btn-select').className = m === 'select' ? active : inactive;
     document.getElementById('btn-add').className = m === 'add' ? active : inactive;
     document.getElementById('btn-crop').className = m === 'crop' ? active : inactive;
@@ -328,7 +328,7 @@
   function setCropStatus(text, isError = false) {
     const el = document.getElementById('crop-status');
     el.textContent = text;
-    el.className = `text-xs mt-2 ${isError ? 'text-red-600 font-semibold' : 'text-slate-500'}`;
+    el.className = `text-xs mt-2 ${isError ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-slate-500 dark:text-slate-400'}`;
   }
 
   async function patchCrop(box) {
@@ -401,7 +401,7 @@
     };
     render();
     const timer = setInterval(render, 1000);
-    status.className = 'flex items-center gap-2 text-xs font-semibold text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2';
+    status.className = 'flex items-center gap-2 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 rounded-lg px-3 py-2 mb-2';
     spinner.classList.remove('hidden');
     overlay.classList.remove('hidden');
     buttons.forEach(b => { b.disabled = true; });
@@ -411,7 +411,7 @@
       overlay.classList.add('hidden');
       buttons.forEach(b => { b.disabled = false; });
       if (errorMessage) {
-        status.className = 'flex items-center gap-2 text-xs font-semibold text-red-700 bg-red-50 rounded-lg px-3 py-2 mb-2';
+        status.className = 'flex items-center gap-2 text-xs font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/50 rounded-lg px-3 py-2 mb-2';
         spinner.classList.add('hidden');
         statusText.textContent = errorMessage;
       } else {
@@ -468,7 +468,7 @@
     const btn = document.getElementById('btn-toggle-overlay');
     btn.textContent = showOverlay ? 'Hide Numbers' : 'Show Numbers';
     btn.className = showOverlay
-      ? 'px-3 py-1.5 text-sm rounded-lg bg-slate-200 text-slate-700 font-semibold hover:bg-slate-300'
+      ? 'px-3 py-1.5 text-sm rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold hover:bg-slate-300 dark:hover:bg-slate-600'
       : 'px-3 py-1.5 text-sm rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600';
     draw();
   }
@@ -482,7 +482,7 @@
     btn.textContent = imgDimmed ? 'Brighten Image' : 'Dim Image';
     btn.className = imgDimmed
       ? 'px-3 py-1.5 text-sm rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600'
-      : 'px-3 py-1.5 text-sm rounded-lg bg-slate-200 text-slate-700 font-semibold hover:bg-slate-300';
+      : 'px-3 py-1.5 text-sm rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold hover:bg-slate-300 dark:hover:bg-slate-600';
   }
   window.toggleImageDim = toggleImageDim;
 

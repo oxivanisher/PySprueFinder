@@ -1,3 +1,15 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* Native form controls and scrollbars follow the theme too */
+  .dark {
+    color-scheme: dark;
+  }
+  .dark input:not([type="file"]),
+  .dark select,
+  .dark textarea {
+    @apply bg-slate-900 text-slate-100 placeholder-slate-500;
+  }
+}

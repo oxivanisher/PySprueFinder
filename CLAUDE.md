@@ -35,6 +35,9 @@ The `tailwindcss` binary and `app/static/css/tailwind.css` are gitignored; READM
 command. The version is pinned in `Dockerfile` (`TAILWIND_VERSION`) and README — keep them in sync.
 Only class names written out in full in `app/templates/` or `app/static/js/` are generated: never
 build class names by concatenation (`'bg-' + colour`) or inside Jinja expressions.
+Dark mode is `darkMode: "class"`: an inline script in `base.html` `<head>` sets `dark` on `<html>`
+(localStorage `theme`, else OS preference), the nav button toggles it. Every light colour class has a
+`dark:` partner next to it (e.g. `bg-white dark:bg-slate-800`) — add one with any new colour class.
 
 ## Setup notes
 
