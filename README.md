@@ -104,3 +104,7 @@ curl -fsSLo tailwindcss https://github.com/tailwindlabs/tailwindcss/releases/dow
 chmod +x tailwindcss
 ./tailwindcss -c tailwind/tailwind.config.js -i tailwind/input.css -o app/static/css/tailwind.css --watch
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
